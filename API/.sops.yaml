@@ -26,6 +26,7 @@ keys:
   - &prod-server2  age10jgvatqaawvt3jg3h4qvlatv4nmzspgwatxvyfd8q9psk34u556szjp6ne   # Production server (srv634277, key in /root)
   - &ankesh        age1m5408duwpttc7hr59nd44fn2dvnc0aqxru7yrlffxqlkuyjvvqzqe2k0ev   # Ankesh
   - &ajay          age19e8x8gw2smj9ldhxww5jxmc074y3unutwc7lxm04esahrjwex4xsf5adxx   # Ajay
+  - &aixo-prod     age1fn36v0zm4k0d2ehqcv46l7s0c5q6xuyfnn4enjqdn55640w0xfkq4dw7yr   # Aixo production server (aixoapp.com)
 
 # The .env extension lets sops auto-detect dotenv format — required for
 # `sops exec-env`, which has no --input-type flag. path_regex uses a `$`
@@ -53,6 +54,7 @@ creation_rules:
           - *prod-server2
           - *ankesh
           - *ajay
+          - *aixo-prod
 
   - path_regex: secrets\.prod-neuradigi\.enc\.env$
     key_groups:
