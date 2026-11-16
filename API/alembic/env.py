@@ -53,9 +53,10 @@ from src.app.packs.furniture.modules.field_ops import (
 )
 target_metadata = Base.metadata
 
-# Override sqlalchemy.url from environment
+# Override sqlalchemy.url from environment. Alembic's config is a ConfigParser,
+# which treats '%' as interpolation syntax — escape the percent-encoded password.
 from src.core.db import DATABASE_URL
-config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("asyncpg", "asyncpg"))
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 
 def run_migrations_offline():

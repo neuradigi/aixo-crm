@@ -1,12 +1,19 @@
 import os
 from collections.abc import AsyncGenerator
+from urllib.parse import quote
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from config import DB_HOST, DB_NAME, DB_PASSWORD, DB_PORT, DB_USER
 
-DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+# Percent-encode the password: a raw '@', ':', '/', '#' or '%' in it would
+# split the URL in the wrong place (e.g. '@' ends the password early and the
+# rest leaks into the host). SQLAlchemy decodes it back when parsing.
+DATABASE_URL = (
+    f"postgresql+asyncpg://{DB_USER}:{quote(DB_PASSWORD or '', safe='')}"
+    f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+)
 
 # Celery workers wrap each task in ``asyncio.run(...)`` which spins up a
 # fresh event loop per task. Connections cached in SQLAlchemy's pool from
