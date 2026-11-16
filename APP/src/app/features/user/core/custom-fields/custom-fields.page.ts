@@ -65,7 +65,7 @@ export class CustomFieldsPageComponent {
    *  with that row queued for deletion. Replaces ``window.confirm`` so
    *  the confirm dialog uses the app's own Tailwind styling
    *  (matches the merge-contact / delete-lead modals) instead of the
-   *  browser's ugly native "localhost:4207 says" box. Source-aware
+   *  browser's ugly native "localhost:4208 says" box. Source-aware
    *  copy — pack + system fields show an amber warning; user fields
    *  get the plain destructive confirm. */
   readonly pendingDelete = signal<CustomField | null>(null);

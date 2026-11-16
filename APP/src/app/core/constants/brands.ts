@@ -41,7 +41,7 @@ export interface Brand {
   readonly manifestUrl: string;
   /**
    * Hostnames this brand answers on. Matched case-insensitively against
-   * `location.hostname`, which never includes a port — so `localhost:4207`
+   * `location.hostname`, which never includes a port — so `localhost:4208`
    * matches `localhost`. Anything unmatched falls back to `DEFAULT_BRAND`,
    * which is why local development, preview URLs and bare IPs all render the
    * default brand without needing to be listed.

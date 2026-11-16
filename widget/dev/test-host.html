@@ -79,9 +79,9 @@
         var key = params.get("key") || "pk_live_devplaceholder";
         // Override the API host via `?host=` in the URL — useful when
         // ngrok-tunneling the API for cross-origin / HTTPS testing.
-        // Defaults to the local Docker-exposed API port (30007 in this
+        // Defaults to the local Docker-exposed API port (30008 in this
         // repo's compose; internal container port is 8000).
-        var host = params.get("host") || "http://localhost:30007";
+        var host = params.get("host") || "http://localhost:30008";
         var script = document.createElement("script");
         script.src = "/v1/widget.js";
         script.type = "module";

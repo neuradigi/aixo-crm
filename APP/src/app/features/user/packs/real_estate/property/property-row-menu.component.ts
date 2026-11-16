@@ -412,7 +412,7 @@ export class PropertyRowMenuComponent {
 
   /** Assemble the public URL from the browser's own origin + the
    * Fernet token the backend returned. Backend can't know the
-   * frontend's host (backend is on port 30007 / a different domain);
+   * frontend's host (backend is on port 30008 / a different domain);
    * always mint client-side so the URL points at the app the user
    * is actually looking at. */
   private publicUrlFromToken(token: string): string {
