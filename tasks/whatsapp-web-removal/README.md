@@ -137,10 +137,10 @@ schema disagree.
 | # | Title | Files | Status |
 |---|---|---|---|
 | 1 | Unhook sidecar from prod deploy (hotfix) | `docker-compose.prod.yml` | done — `8b37e925` |
-| 2 | Detach callers + unmount the router | `integrations/router.py`, `conversations/adapters/whatsapp.py`, `conversations/service.py`, `workflows/actions/send.py`, `chatbots/channel_bridge.py`, `chatbots/nodes/{list,media_button,_shared}.py`, tests | pending |
-| 3 | Delete the backend module, its tests and config | `integrations/whatsapp_web/` (10), `integrations/router.py` import, 6 test files, `config.py`, `config.env`, `docker-compose.yml` | pending |
-| 4 | Migration: clear routing, delete rows, drop table, add CHECKs; drop `IntegrationProvider.whatsapp_web` | new migration, `integrations/models.py`, pre-flight SQL | pending |
-| 5 | Delete `sidecars/`, docs/comments, host + secrets cleanup | `sidecars/`, `REVIEW_CHECKLIST.md`, `DISCOVERY_RULES.md`, `tasks/design-refresh/step-11-conversations.md`, `media-bubble.component.ts`; user-run volume + SOPS commands | pending |
+| 2 | Detach callers + unmount the router | `integrations/router.py`, `conversations/adapters/whatsapp.py`, `conversations/service.py`, `workflows/actions/send.py`, `chatbots/channel_bridge.py`, `chatbots/nodes/{list,media_button,_shared}.py`, tests | done — `fe8138da` |
+| 3 | Delete the backend module, its tests and config | `integrations/whatsapp_web/` (10), `integrations/router.py` import, 6 test files, `config.py`, `config.env`, `docker-compose.yml` | done — `3f41b879` |
+| 4 | Migration: clear routing, delete rows, drop table, add CHECKs; drop `IntegrationProvider.whatsapp_web` | new migration, `integrations/models.py`, pre-flight SQL | done — prod pre-flight + migrate pending (owner) |
+| 5 | Delete `sidecars/`, docs/comments, host + secrets cleanup | `sidecars/`, `REVIEW_CHECKLIST.md`, `DISCOVERY_RULES.md`, `tasks/design-refresh/step-11-conversations.md`, `media-bubble.component.ts`; user-run volume + SOPS commands | done — volume check + SOPS key removal pending (owner) |
 
 ## Cases
 

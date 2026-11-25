@@ -79,7 +79,7 @@ For every third party this product would depend on — payments, email, messagin
 - What will be **silently undeliverable** even though our database accepted it?
 - What is **prohibited outright** in the target region?
 
-For this project that list currently means at minimum: **Meta lead ads · WhatsApp Cloud API (and the Baileys sidecar) · Stripe · Google and Microsoft OAuth (Gmail, Outlook, Calendar) · Firebase push · the AI provider · local file storage · India DPDP and GDPR.**
+For this project that list currently means at minimum: **Meta lead ads · WhatsApp Cloud API · Stripe · Google and Microsoft OAuth (Gmail, Outlook, Calendar) · Firebase push · the AI provider · local file storage · India DPDP and GDPR.**
 
 Each finding is **one sentence with a source**:
 

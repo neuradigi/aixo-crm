@@ -52,4 +52,4 @@ Bubbles: `rounded-2xl` 14px with the "tail" corner reduced (e.g. `rounded-tl-md`
 ## Out of scope
 
 - Backend / provider wiring.
-- WhatsApp Cloud API / Baileys sidecar work (separate track).
+- WhatsApp Cloud API work (separate track).
