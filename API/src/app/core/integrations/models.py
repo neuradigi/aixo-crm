@@ -33,14 +33,14 @@ class IntegrationProvider(str, enum.Enum):
     """Which platform this integration speaks to. Postgres enum
     `integration_provider` — base values from migration 0048
     (`google_ads`, `meta_ads`); `whatsapp` added in 0061 for the
-    WhatsApp Business Cloud API messaging channel; `whatsapp_web`
-    added in 0141 for the unofficial Baileys-based WhatsApp Web
-    integration (see `tasks/whatsapp-unofficial/`)."""
+    WhatsApp Business Cloud API messaging channel. The Postgres type
+    still carries a dead `whatsapp_web` label (0141); migration 0243
+    removed the provider and forbids the value with CHECK constraints
+    on every column of this type."""
 
     google_ads = "google_ads"
     meta_ads = "meta_ads"
     whatsapp = "whatsapp"
-    whatsapp_web = "whatsapp_web"
 
 
 class IntegrationStatus(str, enum.Enum):

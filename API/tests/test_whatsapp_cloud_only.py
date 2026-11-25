@@ -134,3 +134,9 @@ def test_whatsapp_web_routes_not_mounted():
 
     paths = [getattr(route, "path", "") for route in app.routes]
     assert not [p for p in paths if "whatsapp-web" in p]
+
+
+def test_integration_provider_has_no_whatsapp_web():
+    from src.app.core.integrations.models import IntegrationProvider
+
+    assert {p.value for p in IntegrationProvider} == {"google_ads", "meta_ads", "whatsapp"}
