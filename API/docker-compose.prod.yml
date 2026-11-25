@@ -24,27 +24,3 @@ services:
   flower:
     environment:
       <<: *prod-env
-
-  # WhatsApp Web (QR login) transport — Node/Baileys sidecar. Prod-only:
-  # secrets.local.enc.env has no HMAC secrets, and the sidecar refuses to
-  # boot without them. The service name is the host in
-  # WHATSAPP_WEB_SIDECAR_URL (config.env); no published port, only the
-  # api/celery containers call it. Paired sessions live in a named volume
-  # so restarts and rebuilds don't force a QR re-scan.
-  whatsapp-web-sidecar:
-    build: ../sidecars/whatsapp-web
-    environment:
-      NODE_ENV: production
-      SIDECAR_PORT: "4000"
-      FASTAPI_BASE_URL: http://api:8000
-      SIDECAR_HMAC_SECRET: ${WHATSAPP_WEB_SIDECAR_HMAC_SECRET}
-      FASTAPI_HMAC_SECRET: ${WHATSAPP_WEB_INBOUND_HMAC_SECRET}
-      STORAGE_DIR: /app/storage
-    volumes:
-      - whatsapp_web_sessions:/app/storage
-    depends_on:
-      - api
-    restart: unless-stopped
-
-volumes:
-  whatsapp_web_sessions:
