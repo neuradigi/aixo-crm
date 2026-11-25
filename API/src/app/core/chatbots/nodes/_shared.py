@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.core.chatbots import data_access as _dal
 from src.app.core.chatbots.channel_bridge import (
     is_within_wa_window,
-    render_variables,
 )
 from src.app.core.chatbots.engine import NodeExecutionContext, NodeResult
 from src.app.core.conversations.models import Conversation, ConversationChannel
@@ -29,9 +28,7 @@ async def load_conversation(
     """Load the conversation row via DAL — kept as a re-export from
     _shared so node handlers can import all their helpers from one
     place."""
-    return await _dal.load_conversation_for_bot(
-        session, conversation_id=conversation_id
-    )
+    return await _dal.load_conversation_for_bot(session, conversation_id=conversation_id)
 
 
 async def load_contact_data(
@@ -114,12 +111,8 @@ async def load_lead_data(
         return None
     return {
         "id": str(lead.id),
-        "status": (
-            lead.status.value if hasattr(lead.status, "value") else str(lead.status)
-        ),
-        "source": (
-            lead.source.value if hasattr(lead.source, "value") else str(lead.source)
-        ),
+        "status": (lead.status.value if hasattr(lead.status, "value") else str(lead.status)),
+        "source": (lead.source.value if hasattr(lead.source, "value") else str(lead.source)),
         "pipeline_stage": lead.pipeline_stage or "",
         "budget": str(lead.budget) if lead.budget is not None else "",
         "currency": lead.currency or "",
@@ -174,8 +167,8 @@ def match_button_reply(
       1. Exact case-insensitive match on button ``title``.
       2. Case-insensitive prefix match on button ``title`` (customer
          typed "yes I do" for a "Yes" button).
-      3. Numbered fallback for Baileys — customer types ``1`` / ``2``
-         / ``3`` and we look up the corresponding button.
+      3. Numbered reply — customer types ``1`` / ``2`` / ``3`` and we
+         look up the corresponding button.
     """
     reply = (inbound_text or "").strip()
     if not reply:
@@ -196,7 +189,7 @@ def match_button_reply(
     for prefix in ("reply ", ""):
         if not lowered.startswith(prefix):
             continue
-        remainder = lowered[len(prefix):].strip().rstrip(").")
+        remainder = lowered[len(prefix) :].strip().rstrip(").")
         try:
             n = int(remainder)
         except ValueError:

@@ -2,9 +2,7 @@
 
 WhatsApp Interactive List — up to 10 rows across up to 10 sections,
 each row selectable. Row selection resumes the parked run and
-advances via the row ``id`` as the outbound-edge label. Baileys
-fallback flattens rows into numbered text (same pattern as
-:mod:`text_button`).
+advances via the row ``id`` as the outbound-edge label.
 
 Config shape::
 
@@ -57,9 +55,7 @@ async def _send_and_park(ctx: NodeExecutionContext) -> NodeResult:
     if not isinstance(sections, list) or not sections:
         return _shared.errored_result("list.sections must be a non-empty list")
     if len(sections) > _WA_MAX_SECTIONS:
-        return _shared.errored_result(
-            f"list.sections limited to {_WA_MAX_SECTIONS} per WA API"
-        )
+        return _shared.errored_result(f"list.sections limited to {_WA_MAX_SECTIONS} per WA API")
 
     total_rows = 0
     for section in sections:
@@ -73,18 +69,14 @@ async def _send_and_park(ctx: NodeExecutionContext) -> NodeResult:
                 return _shared.errored_result("row title must be 1-24 chars (WA API limit)")
             total_rows += 1
     if total_rows > _WA_MAX_ROWS:
-        return _shared.errored_result(
-            f"list rows limited to {_WA_MAX_ROWS} total per WA API"
-        )
+        return _shared.errored_result(f"list rows limited to {_WA_MAX_ROWS} total per WA API")
     if len(body_raw) > 1024:
         return _shared.errored_result("list.body exceeds 1024 chars (WA API limit)")
 
     conversation = await _shared.load_conversation(
         ctx.session, conversation_id=ctx.run.conversation_id
     )
-    contact_data = await _shared.load_contact_data(
-        ctx.session, contact_id=ctx.run.contact_id
-    )
+    contact_data = await _shared.load_contact_data(ctx.session, contact_id=ctx.run.contact_id)
     channel = _shared.channel_of(ctx)
 
     body = channel_bridge.render_variables(
