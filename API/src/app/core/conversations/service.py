@@ -48,9 +48,7 @@ from src.app.core.conversations.adapters.whatsapp import (
     MAX_MEDIA_DOWNLOAD_BYTES,
     WhatsAppMediaUnavailable,
     WhatsAppNotConnected,
-    WhatsAppWebAdapter,
     resolve_whatsapp_adapter,
-    resolve_whatsapp_web_adapter,
 )
 from src.app.core.conversations.models import (
     Conversation,
@@ -169,8 +167,7 @@ async def open_message_media(
     it (image / video / audio / sticker) or download it (document).
 
     The provider copy is short-lived — Meta media ids expire after ~30
-    days and the Baileys sidecar only holds recent messages — so the
-    first successful fetch is cached in storage under
+    days — so the first successful fetch is cached in storage under
     ``{org_id}/conversation_media/{message_id}/{index}`` and every later
     view is served from there. Returns ``(data, mime_type)``.
 
@@ -196,22 +193,15 @@ async def open_message_media(
         pass
 
     media_id = att.get("media_id") or att.get("id")
-    provider_message_id = att.get("provider_message_id")
     try:
-        if isinstance(media_id, str) and media_id:
-            conversation = await get_conversation(session, conversation_id)
-            adapter = await resolve_whatsapp_adapter(
-                session, phone_id=conversation.received_via_phone_id
-            )
-            if isinstance(adapter, WhatsAppWebAdapter):
-                raise WhatsAppMediaUnavailable("Cloud media id on a Web-only org")
-            data, fetched_mime = await adapter.download_media(media_id)
-            mime = mime or fetched_mime
-        elif isinstance(provider_message_id, str) and provider_message_id:
-            web_adapter = await resolve_whatsapp_web_adapter(session)
-            data = await web_adapter.download_media(provider_message_id)
-        else:
-            raise WhatsAppMediaUnavailable("Attachment carries no provider reference")
+        if not isinstance(media_id, str) or not media_id:
+            raise WhatsAppMediaUnavailable("Attachment carries no Cloud media id")
+        conversation = await get_conversation(session, conversation_id)
+        adapter = await resolve_whatsapp_adapter(
+            session, phone_id=conversation.received_via_phone_id
+        )
+        data, fetched_mime = await adapter.download_media(media_id)
+        mime = mime or fetched_mime
     except (WhatsAppMediaUnavailable, WhatsAppNotConnected) as exc:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
@@ -1031,12 +1021,10 @@ async def receive_webhook(
 
     ``pre_parsed`` skips the adapter's ``parse_webhook`` step when the
     caller has already built the canonical ``InboundMessage`` itself —
-    used by the WhatsApp Web (unofficial) events receiver, where the
-    Node sidecar has already translated Baileys events into the
-    canonical shape before forwarding to FastAPI. ``payload`` is still
-    passed because downstream code (attribution match in particular)
-    keys off it; the caller passes ``inbound.raw`` there for parity
-    with the adapter-parsed path.
+    used by the WhatsApp Cloud webhook, whose adapter is built per-org
+    and so is not in the global channel registry ``resolve`` reads.
+    ``payload`` is still passed because downstream code (attribution
+    match in particular) keys off it.
     """
     if pre_parsed is not None:
         parsed: InboundMessage = pre_parsed
@@ -1053,9 +1041,8 @@ async def receive_webhook(
     )
 
     # Serialize concurrent intake on the same conversation. Meta
-    # retries webhooks for up to 7 days on any non-2xx / slow response,
-    # and the WhatsApp Web sidecar can independently forward the same
-    # event; without a lock, two async workers both pass the
+    # retries webhooks for up to 7 days on any non-2xx / slow response;
+    # without a lock, two async workers both pass the
     # channel_message_id dedup check (their SELECTs see each other's
     # uncommitted inserts as absent under READ COMMITTED), both persist
     # the inbound, and both dispatch an AI reply → duplicate bubbles.

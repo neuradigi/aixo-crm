@@ -438,7 +438,6 @@ async def _send_whatsapp(session, *, run, step_run, node, context):
         return _result_skipped(skip)
 
     from src.app.core.conversations.adapters.whatsapp import (
-        WhatsAppAdapter,
         WhatsAppNotConnected,
         resolve_whatsapp_adapter,
     )
@@ -460,25 +459,17 @@ async def _send_whatsapp(session, *, run, step_run, node, context):
         return _result_channel_error("whatsapp_not_configured", str(exc))
 
     try:
-        if isinstance(adapter, WhatsAppAdapter):
-            # Cloud API only delivers business-initiated messages as
-            # approved templates, so send the Meta template with the
-            # CRM named variables resolved into positional params.
-            ref, rendered_body = await _send_whatsapp_cloud_template(
-                session,
-                adapter=adapter,
-                run=run,
-                template=template,
-                context=context,
-                recipient=recipient,
-            )
-        else:
-            ref = await adapter.send(
-                org_id=run.org_id,
-                external_id=recipient,
-                text=rendered_body,
-                attachments=[],
-            )
+        # Cloud API only delivers business-initiated messages as
+        # approved templates, so send the Meta template with the
+        # CRM named variables resolved into positional params.
+        ref, rendered_body = await _send_whatsapp_cloud_template(
+            session,
+            adapter=adapter,
+            run=run,
+            template=template,
+            context=context,
+            recipient=recipient,
+        )
     except Exception as exc:
         logger.warning(
             "workflows.send.whatsapp failed node=%s recipient=%s error=%s",

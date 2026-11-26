@@ -13,6 +13,9 @@ a fresh bot flow requires a template first send.
 
 from __future__ import annotations
 
+import html as _html
+import logging
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -23,7 +26,6 @@ from src.app.core.conversations.models import (
     Conversation,
     ConversationChannel,
 )
-
 
 # WhatsApp's customer-service window is 24 hours after the customer's
 # last inbound. Free-form outbound outside that window is a Meta policy
@@ -77,14 +79,6 @@ async def is_within_wa_window_by_conv_id(
 # and ``{{run.<key>}}`` via :func:`render_variables` before sending.
 # Missing variables render as empty strings — matches the templates
 # variable engine's fallback (Case #24).
-
-import html as _html
-import logging
-import re
-import uuid
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -238,9 +232,7 @@ async def send_bot_interactive_buttons(
     footer_text: str | None = None,
     is_test: bool = False,
 ) -> dict[str, Any]:
-    """Send WhatsApp reply-buttons (max 3). On Baileys the adapter
-    raises ``WhatsAppSendError`` for interactive — we catch that and
-    fall back to a numbered-text send so the flow still works."""
+    """Send WhatsApp reply-buttons (max 3)."""
     interactive_payload = {
         "kind": "reply_buttons",
         "body": body_text,
@@ -259,31 +251,13 @@ async def send_bot_interactive_buttons(
             "test_mode": True,
         }
 
-    try:
-        ref = await _dispatch_channel_send(
-            session,
-            conversation=conversation,
-            text=body_text,
-            interactive=interactive_payload,
-            attachments=[],
-        )
-        fallback_used = False
-    except Exception as exc:  # noqa: BLE001
-        # Baileys / unsupported provider — fall back to numbered text
-        # (per Decision §5's channel matrix).
-        if not _is_interactive_unsupported(exc):
-            raise
-        numbered_body = _numbered_text_fallback(body_text, buttons)
-        ref = await _dispatch_channel_send(
-            session,
-            conversation=conversation,
-            text=numbered_body,
-            interactive=None,
-            attachments=[],
-        )
-        body_text = numbered_body
-        interactive_payload["fallback"] = "numbered_text"
-        fallback_used = True
+    ref = await _dispatch_channel_send(
+        session,
+        conversation=conversation,
+        text=body_text,
+        interactive=interactive_payload,
+        attachments=[],
+    )
 
     msg_id = await _persist_bot_outbound(
         session,
@@ -298,7 +272,6 @@ async def send_bot_interactive_buttons(
         "body": body_text,
         "buttons": buttons,
         "message_id": str(msg_id),
-        "fallback_used": fallback_used,
     }
 
 
@@ -314,9 +287,7 @@ async def send_bot_interactive_list(
     footer_text: str | None = None,
     is_test: bool = False,
 ) -> dict[str, Any]:
-    """Send WhatsApp list message (up to 10 rows). Baileys fallback
-    is the same numbered-text pattern as buttons — rows across all
-    sections are flattened + numbered."""
+    """Send WhatsApp list message (up to 10 rows)."""
     interactive_payload = {
         "kind": "list",
         "body": body_text,
@@ -336,33 +307,13 @@ async def send_bot_interactive_list(
             "test_mode": True,
         }
 
-    try:
-        ref = await _dispatch_channel_send(
-            session,
-            conversation=conversation,
-            text=body_text,
-            interactive=interactive_payload,
-            attachments=[],
-        )
-        fallback_used = False
-    except Exception as exc:  # noqa: BLE001
-        if not _is_interactive_unsupported(exc):
-            raise
-        flat_rows: list[dict[str, str]] = []
-        for section in sections:
-            for row in section.get("rows", []):
-                flat_rows.append({"id": row["id"], "title": row["title"]})
-        numbered_body = _numbered_text_fallback(body_text, flat_rows)
-        ref = await _dispatch_channel_send(
-            session,
-            conversation=conversation,
-            text=numbered_body,
-            interactive=None,
-            attachments=[],
-        )
-        body_text = numbered_body
-        interactive_payload["fallback"] = "numbered_text"
-        fallback_used = True
+    ref = await _dispatch_channel_send(
+        session,
+        conversation=conversation,
+        text=body_text,
+        interactive=interactive_payload,
+        attachments=[],
+    )
 
     msg_id = await _persist_bot_outbound(
         session,
@@ -377,27 +328,10 @@ async def send_bot_interactive_list(
         "body": body_text,
         "sections": sections,
         "message_id": str(msg_id),
-        "fallback_used": fallback_used,
     }
 
 
 # --- Internals ------------------------------------------------------------
-
-
-def _numbered_text_fallback(body: str, options: list[dict[str, str]]) -> str:
-    """Turn a body + option list into numbered text so operators on
-    Baileys still get a working flow. Reply parsing (customer types
-    ``1``, ``2``, or the label) lives on the bot node handler."""
-    lines = [body, ""]
-    for idx, opt in enumerate(options, start=1):
-        title = opt.get("title") or opt.get("id") or "Option"
-        lines.append(f"Reply {idx} for {title}")
-    return "\n".join(lines)
-
-
-def _is_interactive_unsupported(exc: Exception) -> bool:
-    msg = str(exc).lower()
-    return "interactive" in msg and "cloud api provider" in msg
 
 
 async def _dispatch_channel_send(

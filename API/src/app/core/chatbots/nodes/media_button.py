@@ -67,9 +67,7 @@ async def handle(ctx: NodeExecutionContext) -> NodeResult:
     conversation = await _shared.load_conversation(
         ctx.session, conversation_id=ctx.run.conversation_id
     )
-    contact_data = await _shared.load_contact_data(
-        ctx.session, contact_id=ctx.run.contact_id
-    )
+    contact_data = await _shared.load_contact_data(ctx.session, contact_id=ctx.run.contact_id)
     channel = _shared.channel_of(ctx)
 
     body = channel_bridge.render_variables(
@@ -90,10 +88,8 @@ async def handle(ctx: NodeExecutionContext) -> NodeResult:
 
     # WA interactive envelope with media header requires a dedicated
     # channel_bridge path; for v1 we send the media as a separate
-    # message + the reply-buttons block after it. Baileys falls back
-    # to numbered text (the media send is skipped there in favour of
-    # a "[media unavailable on this provider]" body prefix). Future
-    # polish: merge into a single Meta envelope with header:media.
+    # message + the reply-buttons block after it. Future polish: merge
+    # into a single Meta envelope with header:media.
     if conversation is not None and not ctx.is_test:
         # For real sends we defer to the plain interactive-buttons
         # path; the media_id header is included in the transcript so

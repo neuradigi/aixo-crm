@@ -1,7 +1,7 @@
 """Message-node handler tests — pure Python, no DB / live send.
 
 Covers the sync validation + reply-matching paths. Real WA send +
-outbound-Message persistence + WA-window / Baileys-fallback flows
+outbound-Message persistence + WA-window flows
 land in ``test_nodes_messages_db.py`` — deferred to batch pytest
 per memory ``feedback_pause_before_pytest.md``.
 """
@@ -15,12 +15,10 @@ import pytest
 
 from src.app.core.chatbots.channel_bridge import (
     _escape_for_channel,
-    _numbered_text_fallback,
     render_variables,
 )
 from src.app.core.chatbots.engine import NODE_REGISTRY
 from src.app.core.chatbots.nodes import _shared
-
 
 # --- Registry side-effect --------------------------------------------------
 
@@ -92,19 +90,6 @@ def test_escape_for_channel_preserves_wa_newlines() -> None:
     assert "\t" in _escape_for_channel("col1\tcol2", channel="whatsapp")
 
 
-# --- Numbered-text Baileys fallback ---------------------------------------
-
-
-def test_numbered_fallback_shape() -> None:
-    body = "Pick one"
-    options = [
-        {"id": "a", "title": "Yes"},
-        {"id": "b", "title": "No"},
-    ]
-    rendered = _numbered_text_fallback(body, options)
-    assert rendered == "Pick one\n\nReply 1 for Yes\nReply 2 for No"
-
-
 # --- Button-reply matcher -------------------------------------------------
 
 
@@ -120,7 +105,7 @@ def test_match_button_reply_prefix() -> None:
     assert _shared.match_button_reply("Yes I do", buttons) == "yes"
 
 
-def test_match_button_reply_numbered_fallback() -> None:
+def test_match_button_reply_numbered() -> None:
     buttons = [
         {"id": "a", "title": "Alpha"},
         {"id": "b", "title": "Beta"},
@@ -256,9 +241,7 @@ async def test_list_rejects_over_10_rows() -> None:
     sections = [
         {
             "title": "sec",
-            "rows": [
-                {"id": f"r{i}", "title": f"R{i}"} for i in range(11)
-            ],
+            "rows": [{"id": f"r{i}", "title": f"R{i}"} for i in range(11)],
         }
     ]
     fake_ctx = SimpleNamespace(

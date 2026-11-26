@@ -27,7 +27,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.auth.dependencies import require_permissions
 from src.app.core.integrations.google.dlq import replay_dlq as _replay_google_dlq
-from src.app.core.integrations.meta.dlq import replay_dlq as _replay_meta_dlq
 from src.app.core.integrations.google.router import router as google_router
 from src.app.core.integrations.google.webhook import (
     router as google_webhook_router,
@@ -35,12 +34,10 @@ from src.app.core.integrations.google.webhook import (
 from src.app.core.integrations.google_calendar.router import (
     router as google_calendar_router,
 )
+from src.app.core.integrations.meta.dlq import replay_dlq as _replay_meta_dlq
 from src.app.core.integrations.meta.router import router as meta_router
 from src.app.core.integrations.meta.webhook import (
     router as meta_webhook_router,
-)
-from src.app.core.integrations.whatsapp_web.router import (
-    router as whatsapp_web_router,
 )
 from src.app.core.integrations.models import IntegrationProvider
 from src.app.core.integrations.schemas import (
@@ -106,11 +103,6 @@ router.include_router(meta_webhook_router)
 # the WhatsApp Business Cloud API channel. Full paths become
 # /api/v1/integrations/whatsapp/...
 router.include_router(whatsapp_router)
-# WhatsApp Web (unofficial / Baileys) subrouter — Step 4 of the
-# whatsapp-unofficial track. Mount is in place now; the first
-# endpoint (POST /connect) lands in Step 5. Full paths become
-# /api/v1/integrations/whatsapp-web/...
-router.include_router(whatsapp_web_router)
 
 
 @router.get("", response_model=list[IntegrationRead])
@@ -395,9 +387,7 @@ async def replay_dlq_endpoint(
     if handler is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Provider {row.provider.value} has no replay handler wired up yet."
-            ),
+            detail=(f"Provider {row.provider.value} has no replay handler wired up yet."),
         )
     replayed = await handler(db, dlq_id=dlq_id, actor_id=user.legacy_uuid)
     return IntegrationDLQRead.model_validate(replayed)

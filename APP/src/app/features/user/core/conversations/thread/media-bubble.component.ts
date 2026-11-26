@@ -18,9 +18,9 @@ import { LucideAngularModule } from 'lucide-angular';
 import { environment } from '../../../../../../environments/environment';
 
 /** A media attachment on a message. WhatsApp rows: inbound Cloud API
- *  carries Meta's `id`, ones we uploaded carry `media_id`, WhatsApp Web
- *  carries `provider_message_id` — the backend proxy resolves whichever
- *  is present. Email files are passed with an explicit `src`. */
+ *  carries Meta's `id`, ones we uploaded carry `media_id` — the backend
+ *  proxy resolves whichever is present. Email files are passed with an
+ *  explicit `src`. */
 export interface MediaAttachment {
   type: 'image' | 'video' | 'audio' | 'document' | 'sticker';
   mime_type?: string | null;

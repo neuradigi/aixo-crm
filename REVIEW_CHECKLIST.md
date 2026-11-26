@@ -6,7 +6,7 @@ This file is the master list of **every user-facing functionality in Core CRM**,
 
 > **UI page component → Angular service → HTTP interceptor + route guards → `/api/v1` FastAPI router → service → data-access (DAL) → SQLAlchemy async session → PostgreSQL (with Row-Level Se
 
-curity)** — plus whatever else the flow touches: Celery/Redis jobs, WebSockets, local file storage, Stripe, WhatsApp (Cloud API / Baileys sidecar), Google & Meta OAuth and webhooks, Gmail/Microsoft OAuth, Firebase, and the AI provider.
+curity)** — plus whatever else the flow touches: Celery/Redis jobs, WebSockets, local file storage, Stripe, WhatsApp Cloud API, Google & Meta OAuth and webhooks, Gmail/Microsoft OAuth, Firebase, and the AI provider.
 
 A review is not just "does it work". Each item is judged on **correctness, security, performance, code organization, design fit, and absence** — design fit asking whether the feature is even the *right shape* compared to how mature CRMs solve the same problem, and absence hunting for the case nobody thought about, which no amount of reading the code will surface on its own. When an item is done, its status flips and it is never re-reviewed unless the code changes.
 
@@ -226,6 +226,7 @@ If the flow genuinely has none of these, say so **per question** ("abandoned imp
 | `REVIEWING` | Currently being reviewed — the agent has presented it and the human hasn't decided yet. |
 | `REVIEWED` | Reviewed end-to-end and accepted. Nothing further needed. |
 | `NEEDS_FIX` | Reviewed and a problem was found. The `Notes` column says what, in one line. |
+| `REMOVED` | The functionality was deleted from the product. The `Notes` column names the track that removed it; the ID is never reused. |
 
 ---
 
@@ -569,9 +570,9 @@ The shared team inbox across WhatsApp, SMS, email, Messenger, Instagram, and pus
 
 ### K. WhatsApp Business Platform
 
-By far the largest module — provider connection, template lifecycle with Meta approval, auto-replies, keyword and assignment automation, consent/block list, Flows, QR quick-links, webhooks, phone health, and analytics. Backend: `API/src/app/core/integrations/whatsapp/` and `.../whatsapp_web/`, plus the Baileys sidecar at `sidecars/whatsapp-web/`. Frontend: `APP/src/app/features/user/core/whatsapp/` and `.../core/reporting/whatsapp/`.
+By far the largest module — provider connection, template lifecycle with Meta approval, auto-replies, keyword and assignment automation, consent/block list, Flows, QR quick-links, webhooks, phone health, and analytics. Backend: `API/src/app/core/integrations/whatsapp/`. Frontend: `APP/src/app/features/user/core/whatsapp/` and `.../core/reporting/whatsapp/`.
 
-**Known flag at map time:** the **unofficial (Baileys) provider has a complete, permission-gated backend but no Angular UI** — all four management endpoints exist and no component consumes them. A user cannot connect the unofficial provider from the product today.
+**Removed:** the unofficial WhatsApp Web (Baileys) provider — backend module, sidecar and its table — was deleted by `tasks/whatsapp-web-removal`. WhatsApp is Cloud-API-only; rows K.8–K.14 are kept as `REMOVED` so their IDs stay stable.
 
 | ID | Functionality | Status | Notes |
 |----|---------------|--------|-------|
@@ -582,13 +583,13 @@ By far the largest module — provider connection, template lifecycle with Meta 
 | K.5 | View WhatsApp connection status card | NOT_REVIEWED | |
 | K.6 | List connected phone numbers (multi-number Send-From picker) | NOT_REVIEWED | |
 | K.7 | Send capacity / messaging-tier quota banner | NOT_REVIEWED | |
-| K.8 | Connect WhatsApp Web (Baileys) pairing session — backend only | NOT_REVIEWED | |
-| K.9 | Live QR-pairing SSE stream — backend only | NOT_REVIEWED | |
-| K.10 | Disconnect WhatsApp Web session — backend only | NOT_REVIEWED | |
-| K.11 | View WhatsApp Web session status — backend only | NOT_REVIEWED | |
-| K.12 | Sidecar → API inbound event ingest (HMAC-signed, no JWT) | NOT_REVIEWED | |
-| K.13 | Baileys sidecar service (session lifecycle, outbound send, media, health) | NOT_REVIEWED | |
-| K.14 | Cloud vs unofficial provider selection at send time | NOT_REVIEWED | |
+| K.8 | Connect WhatsApp Web (Baileys) pairing session — backend only | REMOVED | `tasks/whatsapp-web-removal` |
+| K.9 | Live QR-pairing SSE stream — backend only | REMOVED | `tasks/whatsapp-web-removal` |
+| K.10 | Disconnect WhatsApp Web session — backend only | REMOVED | `tasks/whatsapp-web-removal` |
+| K.11 | View WhatsApp Web session status — backend only | REMOVED | `tasks/whatsapp-web-removal` |
+| K.12 | Sidecar → API inbound event ingest (HMAC-signed, no JWT) | REMOVED | `tasks/whatsapp-web-removal` |
+| K.13 | Baileys sidecar service (session lifecycle, outbound send, media, health) | REMOVED | `tasks/whatsapp-web-removal` |
+| K.14 | Cloud vs unofficial provider selection at send time | REMOVED | `tasks/whatsapp-web-removal` |
 | K.15 | WhatsApp templates management page (list + status / category / language filters) | NOT_REVIEWED | |
 | K.16 | Create template draft (template wizard) | NOT_REVIEWED | |
 | K.17 | Edit a draft / rejected template | NOT_REVIEWED | |

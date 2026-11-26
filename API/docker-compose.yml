@@ -23,11 +23,6 @@ x-secret-vars: &secret-vars
   META_APP_SECRET:
   META_WEBHOOK_VERIFY_TOKEN:
   WHATSAPP_APP_SECRET:
-  # WhatsApp Web (QR) — HMAC secrets shared with sidecars/whatsapp-web.
-  # The API signs its calls to the sidecar with the first and verifies
-  # the sidecar's event POSTs with the second.
-  WHATSAPP_WEB_SIDECAR_HMAC_SECRET:
-  WHATSAPP_WEB_INBOUND_HMAC_SECRET:
   STRIPE_SECRET_KEY:
   STRIPE_WEBHOOK_SECRET:
   AI_PROVIDER_KEY_KEK:
