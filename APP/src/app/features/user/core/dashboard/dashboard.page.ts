@@ -25,6 +25,7 @@ import { QuickActionsComponent } from './widgets/quick-actions.component';
 import { TodaysFollowupsComponent } from './widgets/todays-followups.component';
 import { TrendChartComponent } from './widgets/trend-chart.component';
 import { WhatsAppHealthWidgetComponent } from './widgets/whatsapp-health-widget.component';
+import { WhatsAppStatusBadgeComponent } from './widgets/whatsapp-status-badge.component';
 
 interface DashboardCard {
   key: string;
@@ -137,6 +138,7 @@ interface DashboardSummary {
     DealPipelineStripComponent,
     QuickActionsComponent,
     WhatsAppHealthWidgetComponent,
+    WhatsAppStatusBadgeComponent,
     TrendChartComponent,
     FunnelChartComponent,
     TodaysFollowupsComponent,

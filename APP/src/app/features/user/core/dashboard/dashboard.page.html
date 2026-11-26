@@ -5,6 +5,10 @@
        without cluttering the greeting row. -->
   <header class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
     <div>
+      <!-- WhatsApp Business API connection status + jump to its
+           Integrations panel. Renders nothing without
+           `settings.integrations.manage`. -->
+      <app-whatsapp-status-badge />
       @if (summary(); as s) {
         <h1
           class="font-display text-[26px] font-bold leading-tight tracking-[-0.02em] text-default"

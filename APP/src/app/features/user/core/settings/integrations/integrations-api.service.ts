@@ -197,6 +197,20 @@ export interface WhatsAppStatus {
   connected_at: string | null;
 }
 
+/** Rolled-up WhatsApp connection state for status pills (Integrations
+ *  tile + dashboard badge). Keys off `status`, never `connected_at` —
+ *  the backend leaves that historical timestamp populated after a
+ *  disconnect, so reading it would keep showing "Connected". */
+export function whatsAppConnectionState(w: WhatsAppStatus | null): {
+  status: 'connected' | 'error' | 'not_connected';
+  label: string;
+} {
+  const raw = (w?.status ?? '').toLowerCase();
+  if (raw === 'error' || raw === 'expired') return { status: 'error', label: 'Reconnect required' };
+  if (raw === 'connected') return { status: 'connected', label: 'Connected' };
+  return { status: 'not_connected', label: 'Not connected' };
+}
+
 /** HTTP body for `POST /api/v1/integrations/whatsapp/connect`.
  *  `phone_id`, `waba_id`, `access_token`, `verify_token` are required.
  *  `app_secret` is optional — omit to reuse the platform-level

@@ -27,7 +27,8 @@
  * Shows a toast accordingly, opens the matching connector's panel
  * (so "pick the Lead Forms below" is actually below), then refetches
  * (subject to the permission gate above) so each card re-renders from
- * the new state.
+ * the new state. `?connector=<tile id>` (e.g. the dashboard WhatsApp
+ * badge) opens that connector's panel without a toast.
  *
  * Loads `subscriptions` once + passes the array down to each card.
  * Each card filters to its own `integration_id` client-side — keeps
@@ -72,6 +73,7 @@ import {
   IntegrationsApiService,
   IntegrationSubscription,
   WhatsAppStatus,
+  whatsAppConnectionState,
 } from './integrations-api.service';
 
 /** Rolled-up connection state shown on a summary tile. `checking`
@@ -278,18 +280,7 @@ export class IntegrationsPageComponent {
     };
     const gs = statusFor(g);
     const ms = statusFor(m);
-    // Bug fix: the tile previously read `w?.connected_at` — which is a
-    // historical timestamp the backend leaves populated even after
-    // disconnect. Result: the tile kept showing "Connected" until the
-    // row was deleted from the DB. Every other tile keys off `status`,
-    // which is what disconnect actually flips to `'disconnected'`.
-    const ws: { status: 'connected' | 'error' | 'not_connected'; label: string } = (() => {
-      const raw = (w?.status ?? '').toLowerCase();
-      if (raw === 'error' || raw === 'expired')
-        return { status: 'error' as const, label: 'Reconnect required' };
-      if (raw === 'connected') return { status: 'connected' as const, label: 'Connected' };
-      return { status: 'not_connected' as const, label: 'Not connected' };
-    })();
+    const ws = whatsAppConnectionState(w);
     // Build the tile list with per-permission gating so the summary
     // grid matches the detail cards below — Employees / custom roles
     // without the manage keys see only the Google Calendar tile.
@@ -642,25 +633,33 @@ export class IntegrationsPageComponent {
   private _readCallbackQuery(): void {
     const params = this.route.snapshot.queryParamMap;
     const status = params.get('status') as CallbackStatus | null;
-    if (!status) return;
-    const reason = params.get('reason');
-    // One notification per outcome — the standard toast used across
-    // the app (previously an inline banner duplicated the same text).
-    const msg = this._messageFor(status, reason);
-    const subtitle = msg.detail ?? undefined;
-    if (msg.kind === 'success') this.toast.success(msg.title, { subtitle });
-    else if (msg.kind === 'warn') this.toast.warn(msg.title, { subtitle });
-    else this.toast.error(msg.title, { subtitle });
-    // Open the connector the user just came back from, and scroll to it
-    // once the first load has rendered the panel.
-    this.expandedConnector.set(this._connectorFor(status));
-    this.pendingPanelScroll = true;
-    // Bump the calendar card's refresh signal when the callback is a
-    // calendar one so the card refetches its status immediately (no
-    // wait for the 5s poll).
-    if (status.startsWith('google_calendar_')) {
-      this.calendarRefreshTick.update((v) => v + 1);
+    const connector = params.get('connector');
+    if (!status && !connector) return;
+    if (status) {
+      const reason = params.get('reason');
+      // One notification per outcome — the standard toast used across
+      // the app (previously an inline banner duplicated the same text).
+      const msg = this._messageFor(status, reason);
+      const subtitle = msg.detail ?? undefined;
+      if (msg.kind === 'success') this.toast.success(msg.title, { subtitle });
+      else if (msg.kind === 'warn') this.toast.warn(msg.title, { subtitle });
+      else this.toast.error(msg.title, { subtitle });
+      // Open the connector the user just came back from.
+      this.expandedConnector.set(this._connectorFor(status));
+      // Bump the calendar card's refresh signal when the callback is a
+      // calendar one so the card refetches its status immediately (no
+      // wait for the 5s poll).
+      if (status.startsWith('google_calendar_')) {
+        this.calendarRefreshTick.update((v) => v + 1);
+      }
+    } else {
+      // Deep link (`?connector=whatsapp` from the dashboard badge). An
+      // id the caller has no tile for resolves to no panel, so the
+      // per-card permission gates still hold.
+      this.expandedConnector.set(connector);
     }
+    // Scroll to the opened panel once the first load has rendered it.
+    this.pendingPanelScroll = true;
     // Strip the query params so a reload doesn't re-toast. Router
     // navigation preserves the path; `queryParams: {}` + `queryParamsHandling:
     // ''` clears them.
