@@ -2,7 +2,7 @@
 
 **Goal:** the database holds no WhatsApp Web state and refuses to store it again.
 
-## Pre-flight (owner runs on every prod DB before `./run.sh migrate`)
+## Pre-flight (owner runs on every prod DB before `./run.sh upgrade`)
 
 ```sql
 SELECT 'integrations' AS what, status::text, count(*) FROM tbl_integrations

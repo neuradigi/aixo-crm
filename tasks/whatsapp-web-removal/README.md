@@ -121,14 +121,16 @@ webhook, after that route's signature check.
 
 ## Deploy order (prod)
 
-`./run.sh up` does not migrate; `./run.sh migrate` is a separate manual command.
+`./run.sh up` does not migrate; `./run.sh upgrade` applies migrations as a separate manual
+command. (`./run.sh migrate` *generates* a new migration via autogenerate — never run it
+to deploy.)
 
 1. Deploy Steps 2 + 3 code together → `./run.sh up`. Nothing queries
    `tbl_whatsapp_web_sessions` any more; the Python enum still accepts `whatsapp_web`.
-2. Run the Step 4 pre-flight query on the DB. Zero risky rows → `./run.sh migrate`.
+2. Run the Step 4 pre-flight query on the DB. Zero risky rows → `./run.sh upgrade`.
 3. Deploy Step 4 + 5 code → `./run.sh up` (Python enum member gone; DB already clean).
 
-Deploying all steps at once is safe **only** if `./run.sh migrate` runs before the new
+Deploying all steps at once is safe **only** if `./run.sh upgrade` runs before the new
 containers serve traffic; with the documented order there is no window where code and
 schema disagree.
 
