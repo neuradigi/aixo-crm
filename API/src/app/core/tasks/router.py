@@ -156,7 +156,7 @@ async def list_tasks_endpoint(
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_permissions("tasks.read")),
+    user: User = Depends(require_permissions("tasks.read")),
 ) -> TaskListResponse:
     rows, total = await list_tasks_for_entity(
         db,
@@ -167,7 +167,7 @@ async def list_tasks_endpoint(
         size=size,
     )
     return TaskListResponse(
-        items=[TaskOut.model_validate(r) for r in rows],
+        items=await to_task_out_list(db, org_id=user.org_id, rows=rows),
         total=total,
         page=page,
         size=size,

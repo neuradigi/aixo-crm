@@ -14,6 +14,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.app.core.leads.auto_send.schemas import AutoSendSummary
 from src.app.core.tasks.models import TaskFollowupType, TaskPriority, TaskStatus
 from src.app.shared.schemas import (
     BulkDelete,
@@ -82,6 +83,9 @@ class TaskOut(TimestampedOrgScopedOut):
     # Display name of the linked contact / lead (a lead shows its
     # contact's name). Filled on the list endpoints only.
     related_label: str | None = None
+    # The follow-up's auto-message (scheduled / sent / not sent), if any.
+    # Filled on the list endpoints only.
+    auto_send: AutoSendSummary | None = None
 
 
 TaskListResponse = PaginatedResponse[TaskOut]

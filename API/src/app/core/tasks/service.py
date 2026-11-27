@@ -534,6 +534,15 @@ async def update_task(
             payload=changes["custom_data"] or {},
             require_all_required=False,
         )
+    if "due_at" in changes and changes["due_at"] != task.due_at:
+        # A follow-up with a scheduled auto-message can't move to a time
+        # the message couldn't go out at. Imported here: the leads
+        # package imports this module while it initialises.
+        from src.app.core.leads.auto_send import service as auto_send_service
+
+        await auto_send_service.guard_reschedule(
+            session, org_id=task.org_id, task_id=task.id, new_due_at=changes["due_at"]
+        )
     for key, value in changes.items():
         setattr(task, key, value)
     # Bump `last_activity_at` independently of the activity-insert
@@ -697,11 +706,12 @@ async def to_task_out_list(
     session: AsyncSession, *, org_id: uuid.UUID, rows: list[Task]
 ) -> list[TaskOut]:
     """Serialise list rows with ``related_label`` — the linked contact's
-    name, or for a lead its contact's name. Two batched reads (leads,
-    then contacts) for the whole page; plain lookups, so the other
-    modules' DALs are used directly."""
+    name, or for a lead its contact's name — and ``auto_send`` (the
+    follow-up's scheduled / sent auto-message, if any). Three batched
+    reads (leads, contacts, auto-sends) for the whole page."""
     from src.app.core.contacts import data_access as contacts_da
     from src.app.core.leads import data_access as leads_da
+    from src.app.core.leads.auto_send import service as auto_send_service
 
     lead_ids = [t.related_entity_id for t in rows if t.related_entity_type == "lead"]
     leads = await leads_da.list_leads_by_ids_in_org(
@@ -717,6 +727,9 @@ async def to_task_out_list(
         session, ids=list(contact_ids), org_id=org_id
     )
     names = {c.id: c.full_name for c in contacts}
+    auto_sends = await auto_send_service.summaries_for_tasks(
+        session, org_id=org_id, task_ids=[t.id for t in rows]
+    )
 
     out: list[TaskOut] = []
     for t in rows:
@@ -725,7 +738,11 @@ async def to_task_out_list(
             label = names.get(t.related_entity_id)
         elif t.related_entity_type == "lead":
             label = names.get(lead_contact.get(t.related_entity_id))
-        out.append(TaskOut.model_validate(t).model_copy(update={"related_label": label}))
+        out.append(
+            TaskOut.model_validate(t).model_copy(
+                update={"related_label": label, "auto_send": auto_sends.get(t.id)}
+            )
+        )
     return out
 
 

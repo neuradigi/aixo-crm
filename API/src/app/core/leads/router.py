@@ -63,6 +63,7 @@ from src.app.core.leads.service import (
     bulk_delete_leads,
     bulk_move_stage,
     bulk_reassign_leads,
+    cancel_auto_send_for_caller,
     create_scoring_rule,
     delete_lead,
     delete_scoring_rule,
@@ -558,6 +559,17 @@ async def log_lead_update_endpoint(
         contact_tags=contact_tags,
         auto_send=auto_send,
     )
+
+
+@router.post("/auto-sends/{auto_send_id}/cancel", response_model=AutoSendSummary)
+async def cancel_auto_send_endpoint(
+    auto_send_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permissions("leads.read", "conversations.write")),
+) -> AutoSendSummary:
+    """Cancel a scheduled follow-up auto-message. 409 while it is being
+    sent or once it is no longer scheduled."""
+    return await cancel_auto_send_for_caller(db, auto_send_id=auto_send_id, caller=user)
 
 
 @router.get("/{lead_id}/auto-send", response_model=AutoSendSummary | None)

@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from src.app.core.leads.auto_send.schemas import AutoSendSummary
 from src.app.core.tasks.models import (
     TaskFollowupType,
     TaskPriority,
@@ -166,6 +167,8 @@ class FollowupItem(BaseModel):
     notes_preview: str | None
     assigned_to: FollowupAssignedTo
     linked_entity: FollowupLinkedEntity | None
+    # The follow-up's auto-message (scheduled / sent / not sent), if any.
+    auto_send: AutoSendSummary | None = None
 
 
 class FollowupsResponse(BaseModel):

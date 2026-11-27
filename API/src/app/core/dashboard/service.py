@@ -1265,7 +1265,15 @@ async def get_followups(
         page_size=page_size,
     )
 
-    items = [_row_to_followup_item(r) for r in rows]
+    from src.app.core.leads.auto_send import service as auto_send_service
+
+    auto_sends = await auto_send_service.summaries_for_tasks(
+        session, org_id=org_id, task_ids=[r["id"] for r in rows]
+    )
+    items = [
+        _row_to_followup_item(r).model_copy(update={"auto_send": auto_sends.get(r["id"])})
+        for r in rows
+    ]
     return FollowupsResponse(
         scope=scope,
         bucket=bucket,

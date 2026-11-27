@@ -2138,6 +2138,24 @@ async def _load_visible_lead(session: AsyncSession, *, lead_id: uuid.UUID, calle
     return lead
 
 
+async def cancel_auto_send_for_caller(
+    session: AsyncSession, *, auto_send_id: uuid.UUID, caller: Any
+) -> AutoSendSummary:
+    """Cancel a scheduled auto-send the caller can see (via its lead)."""
+    from src.app.core.leads.auto_send import data_access as _auto_send_da
+    from src.app.core.leads.auto_send import service as _auto_send_service
+
+    found = await _auto_send_da.get_auto_send(
+        session, org_id=caller.org_id, auto_send_id=auto_send_id
+    )
+    if found is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="auto-send not found")
+    await _load_visible_lead(session, lead_id=found[0].lead_id, caller=caller)
+    return await _auto_send_service.cancel_auto_send(
+        session, org_id=caller.org_id, auto_send_id=auto_send_id, actor_id=caller.legacy_uuid
+    )
+
+
 async def get_pending_auto_send_for_lead(
     session: AsyncSession, *, lead_id: uuid.UUID, caller: Any
 ) -> AutoSendSummary | None:
@@ -2164,6 +2182,7 @@ __all__ = [
     "list_leads",
     "list_leads_where",
     "list_scoring_rules",
+    "cancel_auto_send_for_caller",
     "get_pending_auto_send_for_lead",
     "log_update_for_lead",
     "move_stage_for_lead",

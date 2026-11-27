@@ -324,3 +324,125 @@ async def get_pending_auto_send(
         return None
     row, due_at = pending[0]
     return summarize(row, due_at)
+
+
+async def summaries_for_tasks(
+    session: AsyncSession, *, org_id: uuid.UUID, task_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, AutoSendSummary]:
+    """Auto-send summary per task id for a list page — one query."""
+    rows = await auto_send_da.list_auto_sends_for_tasks(session, org_id=org_id, task_ids=task_ids)
+    return {row.task_id: summarize(row, due_at) for row, due_at in rows}
+
+
+async def cancel_auto_send(
+    session: AsyncSession, *, org_id: uuid.UUID, auto_send_id: uuid.UUID, actor_id: uuid.UUID
+) -> AutoSendSummary:
+    """Cancel a scheduled (or claimed, not yet sending) auto-send. 404 for
+    another org's id, 409 while it is being sent or once it is final.
+    Commits; then audits and tells the creator and the follow-up's
+    assignee (whoever isn't the actor)."""
+    found = await auto_send_da.get_auto_send(session, org_id=org_id, auto_send_id=auto_send_id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="auto-send not found")
+    row, task = found
+    if row.status == FollowUpAutoSendStatus.sending:
+        raise _reject(409, "auto_send_sending", "This auto-message is being sent right now.")
+    cancelled = await auto_send_da.cancel_pending_auto_sends(
+        session,
+        org_id=org_id,
+        ids=[row.id],
+        cancelled_by_id=actor_id,
+        reason="cancelled_by_user",
+        now=datetime.now(UTC),
+    )
+    if not cancelled:
+        raise _reject(409, "auto_send_not_pending", "This auto-message is no longer scheduled.")
+    await activities_service.record_in_session(
+        session,
+        org_id=org_id,
+        entity_type="lead",
+        entity_id=row.lead_id,
+        type=ActivityType.task,
+        payload={
+            "text": f"Scheduled auto-message “{row.template_name}” cancelled",
+            "auto_send_id": str(row.id),
+            "status": FollowUpAutoSendStatus.cancelled.value,
+        },
+        user_id=actor_id,
+    )
+    await session.commit()
+
+    refreshed = await auto_send_da.get_auto_send(session, org_id=org_id, auto_send_id=row.id)
+    row, task = refreshed if refreshed is not None else (row, task)
+    await audit.log(
+        "leads.auto_send_cancelled",
+        entity_type="follow_up_auto_send",
+        entity_id=row.id,
+        after={"reason": "cancelled_by_user"},
+    )
+    for recipient in {row.created_by_id, task.assigned_to_id} - {actor_id}:
+        await notify(
+            org_id=org_id,
+            user_id=recipient,
+            type="follow_up.auto_send_cancelled",
+            title="A scheduled auto-message was cancelled",
+            body=f"“{row.template_name}” on a follow-up was cancelled by a colleague.",
+            payload={"lead_id": str(row.lead_id), "auto_send_id": str(row.id)},
+        )
+    return summarize(row, task.due_at)
+
+
+async def guard_reschedule(
+    session: AsyncSession, *, org_id: uuid.UUID, task_id: uuid.UUID, new_due_at: datetime | None
+) -> None:
+    """Refuse moving a follow-up that has a scheduled auto-message to a
+    time the message couldn't go out at. Called by the tasks service
+    before it writes a new ``due_at``; a task without a pending
+    auto-send is never blocked."""
+    row = await auto_send_da.get_auto_send_for_task(session, org_id=org_id, task_id=task_id)
+    if row is None or row.status not in (
+        FollowUpAutoSendStatus.scheduled,
+        FollowUpAutoSendStatus.claimed,
+    ):
+        return
+    if new_due_at is None:
+        raise _reject(
+            422,
+            "auto_send_due_required",
+            "This follow-up has an auto-message scheduled — cancel it before clearing the date.",
+        )
+    due_at = new_due_at if new_due_at.tzinfo else new_due_at.replace(tzinfo=UTC)
+    now = datetime.now(UTC)
+    if due_at < now - AUTO_SEND_PAST_GRACE:
+        raise _reject(
+            422,
+            "auto_send_past_due",
+            "This follow-up has an auto-message scheduled — pick a future time or cancel it.",
+        )
+    if due_at > now + AUTO_SEND_HORIZON:
+        raise _reject(
+            422,
+            "auto_send_too_far",
+            f"Auto-messages can be scheduled up to {AUTO_SEND_HORIZON.days} days ahead.",
+        )
+    template = (
+        await templates_da.get_template(session, org_id=org_id, template_id=row.template_id)
+        if row.template_id
+        else None
+    )
+    if template is not None and await falls_in_quiet_hours(
+        session, org_id=org_id, at=due_at, category=template.category.value
+    ):
+        raise _reject(
+            422,
+            "auto_send_quiet_hours",
+            "That time is inside your quiet hours — pick a time outside them.",
+        )
+
+
+async def housekeep(session: AsyncSession) -> int:
+    """Cancel scheduled auto-sends whose follow-up was closed, undated or
+    changed type, across every org. Commits. Run by the sweep."""
+    cancelled = await auto_send_da.cancel_scheduled_for_dead_tasks(session, now=datetime.now(UTC))
+    await session.commit()
+    return cancelled
