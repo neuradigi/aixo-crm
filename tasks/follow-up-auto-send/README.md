@@ -192,4 +192,3 @@ with **Replace**. Badges ("Auto-message 15:53 · <template>", "Sent · Delivered
 
 Ships after [`contact-tags-for-campaigns`](../contact-tags-for-campaigns/README.md) (both edit
 log-update and the Update Status modal). Migration numbers follow that track's `0244`.
-Step files are written when this track starts.
