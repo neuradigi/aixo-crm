@@ -43,6 +43,7 @@ import { ContactTagDelta, ContactsApiService } from './contacts-api.service';
     @if (editable()) {
       <crm-tag-input
         [dense]="true"
+        appearance="inline"
         [ngModel]="current()"
         [suggestions]="vocabulary.suggestions()"
         [placeholder]="placeholder()"
@@ -55,10 +56,10 @@ import { ContactTagDelta, ContactsApiService } from './contacts-api.service';
         <p class="field-error mt-1">{{ msg }}</p>
       }
     } @else if (current().length > 0) {
-      <div class="flex flex-wrap gap-1">
+      <div class="flex flex-wrap gap-1.5">
         @for (tag of current(); track tag) {
           <span
-            class="inline-flex h-6 items-center rounded-full bg-surface-2 px-2.5 text-[12px] font-medium text-default ring-1 ring-subtle"
+            class="inline-flex h-6 items-center rounded-full bg-accent-soft px-2.5 text-[12px] font-medium text-accent"
           >
             {{ tag }}
           </span>
@@ -75,7 +76,7 @@ export class ContactTagsEditorComponent {
    *  editor load the contact. */
   readonly tags = input<readonly string[] | null>(null);
   readonly canEdit = input(false);
-  readonly placeholder = input('Add a tag…');
+  readonly placeholder = input('Add tag');
   /** The contact's tags after each successful save. */
   readonly tagsChange = output<string[]>();
 

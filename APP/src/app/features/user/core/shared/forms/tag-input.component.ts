@@ -42,6 +42,9 @@ let nextId = 0;
  *
  * The suggestion panel renders in the CDK overlay container, so it is
  * never clipped by a scrolling modal body.
+ *
+ * `appearance="inline"` is for record headers / side panels: chips and a
+ * faint "+ Add tag" with no box until hovered or focused.
  */
 @Component({
   selector: 'crm-tag-input',
@@ -60,7 +63,13 @@ let nextId = 0;
       cdkOverlayOrigin
       #origin="cdkOverlayOrigin"
       [for]="inputId"
-      class="flex w-full cursor-text flex-wrap items-center gap-1.5 border border-subtle bg-app transition hover:border-faint focus-within:border-accent focus-within:ring-1 focus-within:ring-accent"
+      class="flex w-full cursor-text flex-wrap items-center gap-1.5 border transition focus-within:border-accent focus-within:ring-1 focus-within:ring-accent"
+      [class.border-subtle]="!inline()"
+      [class.bg-app]="!inline()"
+      [class.hover:border-faint]="!inline()"
+      [class.border-transparent]="inline()"
+      [class.hover:bg-surface-2]="inline()"
+      [class.focus-within:bg-app]="inline()"
       [class.min-h-[40px]]="!dense()"
       [class.rounded-[9px]]="!dense()"
       [class.px-2]="!dense()"
@@ -87,18 +96,23 @@ let nextId = 0;
           </button>
         </span>
       }
+      @if (inline() && !disabled()) {
+        <lucide-icon name="plus" class="-mr-1 ml-0.5 h-3.5 w-3.5 shrink-0 text-faint" />
+      }
       <input
         #textInput
         type="text"
         [id]="inputId"
         role="combobox"
         autocomplete="off"
-        class="min-w-[7rem] flex-1 border-0 bg-transparent px-1 py-0.5 text-[13px] text-default placeholder:text-faint focus:outline-none focus:ring-0"
+        class="flex-1 border-0 bg-transparent px-1 py-0.5 text-[13px] text-default placeholder:text-faint focus:outline-none focus:ring-0"
+        [class.min-w-[7rem]]="!inline()"
+        [class.min-w-[5.5rem]]="inline()"
         [attr.aria-label]="ariaLabel()"
         [attr.aria-expanded]="panelOpen()"
         [attr.aria-controls]="listboxId"
         aria-autocomplete="list"
-        [placeholder]="tags().length === 0 ? placeholder() : ''"
+        [placeholder]="inline() || tags().length === 0 ? placeholder() : ''"
         [value]="text()"
         [disabled]="disabled()"
         (input)="onInput($event)"
@@ -169,11 +183,14 @@ export class TagInputComponent implements ControlValueAccessor {
   readonly ariaLabel = input<string | null>('Tags');
   /** Compact 32px variant for inline editors; default matches `.input`. */
   readonly dense = input(false);
+  /** `field` is a form input; `inline` shows no box until hovered / focused. */
+  readonly appearance = input<'field' | 'inline'>('field');
 
   readonly lookup = output<string>();
   readonly added = output<string>();
   readonly removed = output<string>();
 
+  protected readonly inline = computed(() => this.appearance() === 'inline');
   protected readonly tags = signal<string[]>([]);
   protected readonly text = signal('');
   protected readonly message = signal<string | null>(null);

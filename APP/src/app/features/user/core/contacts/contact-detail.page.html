@@ -112,13 +112,16 @@
               </div>
             </dl>
             @if (canEditTags() || c.tags.length > 0) {
-              <app-contact-tags-editor
-                class="mt-2 block max-w-xl"
-                [contactId]="c.id"
-                [tags]="c.tags"
-                [canEdit]="canEditTags()"
-                (tagsChange)="onTagsChanged($event)"
-              />
+              <div class="mt-2 flex max-w-xl items-start gap-2 text-xs">
+                <span class="mt-[7px] shrink-0 font-medium text-muted">Tags</span>
+                <app-contact-tags-editor
+                  class="block min-w-0 flex-1"
+                  [contactId]="c.id"
+                  [tags]="c.tags"
+                  [canEdit]="canEditTags()"
+                  (tagsChange)="onTagsChanged($event)"
+                />
+              </div>
             }
           </div>
         </div>
