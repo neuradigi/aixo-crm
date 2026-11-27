@@ -254,6 +254,18 @@ def _resolve_quiet_hours_defer(settings: _ComplianceSettings, *, now: datetime) 
     return defer_local.astimezone(UTC)
 
 
+async def falls_in_quiet_hours(session, *, org_id: uuid.UUID, at: datetime, category: str) -> bool:
+    """True when a send of ``category`` at ``at`` would land inside the
+    org's quiet hours. Same rule as :func:`check_send`: marketing always
+    respects quiet hours; transactional / service only when the org
+    turned ``transactional_bypass_quiet_hours`` off. Used by the
+    follow-up auto-send to refuse a time up front."""
+    settings = await _load_settings(session, org_id=org_id)
+    if category != "marketing" and settings.transactional_bypass_quiet_hours:
+        return False
+    return _resolve_quiet_hours_defer(settings, now=at) is not None
+
+
 # ---------------------------------------------------------------------------
 # Frequency cap
 # ---------------------------------------------------------------------------

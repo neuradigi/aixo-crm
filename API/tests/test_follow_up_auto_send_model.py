@@ -130,4 +130,4 @@ async def test_pending_lookup_spans_the_persons_leads(test_db, world):
     pending = await auto_send_da.list_pending_auto_sends_for_contact(
         test_db, org_id=world["org_id"], contact_id=world["contact"].id
     )
-    assert [p.lead_id for p in pending] == [world["leads"][1].id]
+    assert [row.lead_id for row, _due in pending] == [world["leads"][1].id]

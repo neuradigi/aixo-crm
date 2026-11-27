@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.auth.dependencies import require_permissions
 from src.app.core.leads import scoring
+from src.app.core.leads.auto_send.schemas import AutoSendSummary
 from src.app.core.leads.csv_export import export_filename, export_rows
 from src.app.core.leads.ingest import ingest as ingest_lead
 from src.app.core.leads.models import LeadStatus
@@ -67,6 +68,7 @@ from src.app.core.leads.service import (
     delete_scoring_rule,
     get_lead,
     get_lead_visible_to,
+    get_pending_auto_send_for_lead,
     list_leads_visible_to,
     list_leads_where,
     list_scoring_rules,
@@ -530,13 +532,21 @@ async def log_lead_update_endpoint(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Missing permission(s): contacts.write",
             )
+    if payload.next_follow_up is not None and payload.next_follow_up.auto_send_template_id:
+        # Scheduling a message is the deferred form of the inbox's manual
+        # template send, which needs `conversations.write`.
+        if not await role_has_permission(db, user.role_id, "conversations.write"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Missing permission(s): conversations.write",
+            )
     if payload.set_assigned_to:
         if not await role_has_permission(db, user.role_id, "leads.reassign"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Missing permission(s): leads.reassign",
             )
-    lead, next_task_id, contact_tags = await log_update_for_lead(
+    lead, next_task_id, contact_tags, auto_send = await log_update_for_lead(
         db,
         lead_id=lead_id,
         caller=user,
@@ -546,7 +556,19 @@ async def log_lead_update_endpoint(
         lead=LeadOut.model_validate(lead),
         next_follow_up_task_id=next_task_id,
         contact_tags=contact_tags,
+        auto_send=auto_send,
     )
+
+
+@router.get("/{lead_id}/auto-send", response_model=AutoSendSummary | None)
+async def get_lead_auto_send_endpoint(
+    lead_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permissions("leads.read")),
+) -> AutoSendSummary | None:
+    """The pending auto-send of this lead's person, or null — lets the
+    Update Status modal warn before scheduling a second one."""
+    return await get_pending_auto_send_for_lead(db, lead_id=lead_id, caller=user)
 
 
 # --- Reassign + bulk endpoints ----------------------------------------------

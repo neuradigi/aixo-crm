@@ -129,9 +129,24 @@ def insert_account(session: AsyncSession, account: EmailAccount) -> None:
     session.add(account)
 
 
-async def find_default_sendable(
-    session: AsyncSession, *, org_id: uuid.UUID
+async def find_live_account_for_user(
+    session: AsyncSession, *, org_id: uuid.UUID, user_id: uuid.UUID
 ) -> EmailAccount | None:
+    """The user's first-connected live OAuth mailbox in this org, or ``None``."""
+    result = await session.execute(
+        select(EmailAccount)
+        .where(
+            EmailAccount.org_id == org_id,
+            EmailAccount.user_id == user_id,
+            EmailAccount.sync_state == EmailAccountSyncState.live,
+        )
+        .order_by(EmailAccount.connected_at.asc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def find_default_sendable(session: AsyncSession, *, org_id: uuid.UUID) -> EmailAccount | None:
     """The org's ``is_default=True`` OAuth mailbox, or ``None``.
 
     Also gates on ``sync_state != disconnected`` and a non-null
@@ -152,17 +167,13 @@ async def find_default_sendable(
     return result.scalar_one_or_none()
 
 
-async def clear_all_defaults(
-    session: AsyncSession, *, org_id: uuid.UUID
-) -> None:
+async def clear_all_defaults(session: AsyncSession, *, org_id: uuid.UUID) -> None:
     """Reset ``is_default=false`` on every OAuth mailbox in the org.
     Caller commits — used as the OAuth half of the polymorphic
     :func:`email_senders.service.set_default_sender` flip so exactly
     one row across both tables carries the flag."""
     await session.execute(
-        update(EmailAccount)
-        .where(EmailAccount.org_id == org_id)
-        .values(is_default=False)
+        update(EmailAccount).where(EmailAccount.org_id == org_id).values(is_default=False)
     )
 
 

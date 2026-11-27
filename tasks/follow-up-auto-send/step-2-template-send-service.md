@@ -7,12 +7,12 @@ provider, and reports a clear outcome instead of raising HTTP errors.
 
 ## Scope
 
-1. `conversations/exceptions.py` (or existing module) — typed errors for the inbox template send:
-   `TemplateSendBlocked`, `TemplateNotSendable`, `TemplateVariablesMismatch`; `send_template_message`
-   raises them instead of string `ValueError`s; `conversations/router.py` maps them to the same
-   HTTP codes as today.
-2. `shared/email/org_sender.py` — resolver returning the sender's ids (`account_id` /
-   `smtp_sender_id`), preferring the given user's connected mailbox, else the org default.
+1. `conversations/exceptions.py` — `TemplateSendRejected(ValueError)` with a fixed `code`;
+   `send_template_message` raises it instead of string `ValueError`s (subclassing `ValueError`
+   keeps the inbox route's `ValueError → 400` mapping unchanged); both `send_template_message`
+   and `send_email` gain `extra_payload` merged into the message payload.
+2. `email/data_access.py` — `find_live_account_for_user`. No `org_sender` change: when no
+   mailbox is passed, `send_email` already runs the org send cascade.
 3. `conversations/template_send_service.py` — `send_template_to_contact(session, *, org_id,
    contact_id, lead_id, template_id, sender_user_id, auto_send_id) -> SendOutcome`:
    - Checks first (no conversation created when any fails): contact exists in org, not

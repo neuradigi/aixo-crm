@@ -17,6 +17,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from src.app.core.contacts.schemas import ContactTagDelta
+from src.app.core.leads.auto_send.schemas import AutoSendSummary
 from src.app.core.leads.models import LeadSource, LeadStatus
 from src.app.core.tasks.models import TaskFollowupType
 from src.app.shared.schemas import (
@@ -167,6 +168,13 @@ class NextFollowUpSpec(BaseModel):
 
     due_at: datetime
     followup_type: TaskFollowupType
+    # Optional saved template to send to the lead's contact when this
+    # follow-up comes due (WhatsApp / Email follow-ups only). Needs
+    # `conversations.write` (router).
+    auto_send_template_id: uuid.UUID | None = None
+    # Cancel the person's existing pending auto-send and schedule this
+    # one instead (otherwise 409 `auto_send_exists`).
+    replace_existing_auto_send: bool = False
 
     model_config = ConfigDict(extra="forbid")
 
@@ -301,6 +309,8 @@ class LogUpdateResponse(BaseModel):
     # The contact's tags after the save — set only when the request
     # carried a non-empty ``contact_tags`` delta.
     contact_tags: list[str] | None = None
+    # The auto-send scheduled on the new follow-up, if one was requested.
+    auto_send: AutoSendSummary | None = None
 
 
 class LeadIngestOut(LeadOut):

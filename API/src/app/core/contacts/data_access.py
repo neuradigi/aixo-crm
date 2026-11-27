@@ -360,13 +360,13 @@ async def list_distinct_contact_tags(
     return [(row[0], row[1]) for row in result.all()]
 
 
-async def lock_contacts_for_tag_change(
+async def lock_contacts(
     session: AsyncSession, *, org_id: uuid.UUID, contact_ids: list[uuid.UUID]
 ) -> list[Contact]:
     """Load and row-lock the org's contacts among ``contact_ids`` so a
-    tag change computes its diff from a snapshot no concurrent writer
-    can move. ``populate_existing`` refreshes rows already in the
-    session's identity map."""
+    change (tag delta, follow-up auto-send scheduling) works from a
+    snapshot no concurrent writer can move. ``populate_existing``
+    refreshes rows already in the session's identity map."""
     result = await session.execute(
         select(Contact)
         .where(Contact.org_id == org_id, Contact.id.in_(contact_ids))
@@ -892,7 +892,7 @@ __all__ = [
     "is_user_active_member_of_org",
     "list_contacts_by_ids_in_org",
     "list_contacts_for_export",
-    "lock_contacts_for_tag_change",
+    "lock_contacts",
     "reassign_contact_references",
     "reload_contacts",
 ]

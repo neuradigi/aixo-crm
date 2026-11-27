@@ -36,7 +36,7 @@ import logging
 import os
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.message import EmailMessage
@@ -285,6 +285,7 @@ async def send_email(
     conversation_id: uuid.UUID | None = None,
     reply_to: str | None = None,
     attachments: Sequence[OutboundAttachment] = (),
+    extra_payload: Mapping[str, Any] | None = None,
 ) -> SendEmailResult:
     """Send an email from the org's connected sender identity.
 
@@ -784,6 +785,10 @@ async def send_email(
         outbound_payload["original_reply_to"] = original_reply_to
     if reply_to is not None:
         outbound_payload["reply_to"] = reply_to
+    # Caller-supplied markers (e.g. `author` / `auto_send_id` from the
+    # follow-up auto-send) — added last, never replacing keys above.
+    for key, value in (extra_payload or {}).items():
+        outbound_payload.setdefault(key, value)
 
     msg = Message(
         id=pre_message_id,

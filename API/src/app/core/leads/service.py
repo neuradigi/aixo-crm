@@ -50,6 +50,7 @@ from src.app.core.contacts import service as _contacts_service
 from src.app.core.contacts.models import Contact
 from src.app.core.leads import data_access as _da
 from src.app.core.leads import filter_dsl, scoring
+from src.app.core.leads.auto_send.schemas import AutoSendSummary
 from src.app.core.leads.csv_export import resolve_custom_columns
 from src.app.core.leads.models import (
     Lead,
@@ -1864,25 +1865,23 @@ async def log_update_for_lead(
     lead_id: uuid.UUID,
     caller: Any,
     payload: LogUpdateRequest,
-) -> tuple[Lead, uuid.UUID | None, list[str] | None]:
+) -> tuple[Lead, uuid.UUID | None, list[str] | None, AutoSendSummary | None]:
     """Atomic Update-Status write path.
 
     Returns ``(refreshed_lead, next_follow_up_task_id | None,
-    contact_tags_after | None)``. Raises 404 (lead missing or cross-org /
-    not visible), 409 (``if_current_stage`` guard tripped, anonymised
-    contact), 422 (contact shared across multiple leads / target stage
-    invalid / lost-reason rules / tag cap).
+    contact_tags_after | None, auto_send | None)``. Raises 404 (lead
+    missing or cross-org / not visible), 409 (``if_current_stage`` guard
+    tripped, anonymised contact, person already has a pending
+    auto-send), 422 (contact shared across multiple leads / target stage
+    invalid / lost-reason rules / tag cap / auto-send rules).
     """
-    from src.app.core.permissions.service import role_has_permission
+    # Imported here, not at module top: the auto-send service reaches the
+    # conversations module, whose import chain loops back through
+    # contacts → leads while `leads` is still initialising.
+    from src.app.core.leads.auto_send import service as _auto_send_service
 
     # 1. Load + defence-in-depth org check + row-level visibility.
-    lead = await _da.get_lead_by_id(session, lead_id)
-    if lead is None or lead.org_id != caller.org_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lead not found")
-    if lead.assigned_to_id != caller.legacy_uuid and not await role_has_permission(
-        session, caller.role_id, "users.read"
-    ):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lead not found")
+    lead = await _load_visible_lead(session, lead_id=lead_id, caller=caller)
 
     # 2. Optimistic stage-drift guard. Reject stale submissions rather
     #    than clobbering a concurrent move with fabricated history.
@@ -1894,6 +1893,9 @@ async def log_update_for_lead(
 
     org_id = caller.org_id
     actor_id = caller.legacy_uuid
+    # Whether the lead is (or, after this save, will be) Won / Lost —
+    # auto-sends can't be scheduled on a closed lead.
+    lead_closing = lead.status != LeadStatus.active
 
     # 3a. Optional contact-tag delta on the lead's own contact (the id
     #     comes from the lead row, never the request). Staged through the
@@ -1955,6 +1957,7 @@ async def log_update_for_lead(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="lost_reason is required when moving a lead to a Lost stage",
             )
+        lead_closing = new_stage.is_won or new_stage.is_lost
         from_stage = lead.pipeline_stage
         await _pipelines_da.update_card_pipeline_stage(
             session,
@@ -2052,6 +2055,21 @@ async def log_update_for_lead(
         await session.flush()
         next_task_id = task.id
 
+    # 7b. Optional auto-send on that follow-up — every rule checked
+    #     inside this transaction; a refusal rolls back the whole save.
+    staged_auto_send: _auto_send_service.StagedAutoSend | None = None
+    if payload.next_follow_up is not None and payload.next_follow_up.auto_send_template_id:
+        staged_auto_send = await _auto_send_service.stage_auto_send(
+            session,
+            org_id=org_id,
+            lead=lead,
+            task=task,
+            template_id=payload.next_follow_up.auto_send_template_id,
+            actor_id=actor_id,
+            lead_closing=lead_closing,
+            replace=payload.next_follow_up.replace_existing_auto_send,
+        )
+
     # 8. Single commit + refresh.
     await session.commit()
     await session.refresh(lead)
@@ -2094,7 +2112,43 @@ async def log_update_for_lead(
     if tag_diffs:
         await _contacts_service.publish_tag_delta(session, org_id=org_id, diffs=tag_diffs)
 
-    return lead, next_task_id, (tag_diffs[0].after if tag_diffs else None)
+    # 12. Auto-send audit + "your message was replaced" notifications.
+    auto_send: AutoSendSummary | None = None
+    if staged_auto_send is not None:
+        await _auto_send_service.publish_auto_send_staged(
+            staged_auto_send, org_id=org_id, actor_id=actor_id
+        )
+        auto_send = _auto_send_service.summarize(staged_auto_send.row, staged_auto_send.due_at)
+
+    return lead, next_task_id, (tag_diffs[0].after if tag_diffs else None), auto_send
+
+
+async def _load_visible_lead(session: AsyncSession, *, lead_id: uuid.UUID, caller: Any) -> Lead:
+    """The lead, or 404 when it is missing, in another org, or assigned to
+    someone else and the caller can't see colleagues' leads."""
+    from src.app.core.permissions.service import role_has_permission
+
+    lead = await _da.get_lead_by_id(session, lead_id)
+    if lead is None or lead.org_id != caller.org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lead not found")
+    if lead.assigned_to_id != caller.legacy_uuid and not await role_has_permission(
+        session, caller.role_id, "users.read"
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lead not found")
+    return lead
+
+
+async def get_pending_auto_send_for_lead(
+    session: AsyncSession, *, lead_id: uuid.UUID, caller: Any
+) -> AutoSendSummary | None:
+    """The pending auto-send of this lead's person (on any of their
+    leads) — what the Update Status modal shows before saving."""
+    from src.app.core.leads.auto_send import service as _auto_send_service
+
+    lead = await _load_visible_lead(session, lead_id=lead_id, caller=caller)
+    return await _auto_send_service.get_pending_auto_send(
+        session, org_id=caller.org_id, contact_id=lead.contact_id
+    )
 
 
 __all__ = [
@@ -2110,6 +2164,7 @@ __all__ = [
     "list_leads",
     "list_leads_where",
     "list_scoring_rules",
+    "get_pending_auto_send_for_lead",
     "log_update_for_lead",
     "move_stage_for_lead",
     "pipeline_value_rollup",

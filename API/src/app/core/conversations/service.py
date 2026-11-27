@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -50,6 +50,7 @@ from src.app.core.conversations.adapters.whatsapp import (
     WhatsAppNotConnected,
     resolve_whatsapp_adapter,
 )
+from src.app.core.conversations.exceptions import TemplateSendRejected
 from src.app.core.conversations.models import (
     Conversation,
     ConversationChannel,
@@ -784,16 +785,23 @@ async def send_template_message(
     template_id: uuid.UUID,
     variables: dict[str, str],
     send_from_phone_id: str | None = None,
+    extra_payload: Mapping[str, Any] | None = None,
 ) -> Message:
     """Send an approved WhatsApp template through an existing
     conversation. Used by the inbox composer's inline template picker
     when the 24-hour session window has expired (Meta's rule: only
-    approved templates outside the window).
+    approved templates outside the window), and by the follow-up
+    auto-send through ``template_send_service``.
 
-    Guards:
-      * conversation must be WhatsApp — 400 otherwise
-      * template must belong to this org and be APPROVED — 404 / 400
+    Guards (``TemplateSendRejected`` carries a fixed ``code``):
+      * conversation must be WhatsApp
+      * number not on the block list
+      * template must belong to this org and be APPROVED + active
+        (404 when it doesn't resolve at all)
       * ``variables`` count must equal the template's ``variable_count``
+
+    ``extra_payload`` is merged into the Message ``payload`` (e.g.
+    ``author`` / ``auto_send_id`` for automated sends).
     """
     from src.app.core.integrations.whatsapp import data_access as _wa_da
     from src.app.core.integrations.whatsapp.block_list import is_blocked
@@ -808,14 +816,18 @@ async def send_template_message(
 
     conv = await get_conversation(session, conversation_id)
     if conv.channel != ConversationChannel.whatsapp:
-        raise ValueError("Template sends are only supported on WhatsApp conversations.")
+        raise TemplateSendRejected(
+            "not_whatsapp_conversation",
+            "Template sends are only supported on WhatsApp conversations.",
+        )
 
     block_hit = await is_blocked(session, org_id=conv.org_id, phone=conv.external_id)
     if block_hit is not None:
-        raise ValueError(
+        raise TemplateSendRejected(
+            "blocked",
             f"This number is on the block list "
             f"(reason: {block_hit.reason}). Unblock it from "
-            f"Settings → WhatsApp → Block List to send again."
+            f"Settings → WhatsApp → Block List to send again.",
         )
 
     # The picker + chatbot template node now pass central library IDs
@@ -827,15 +839,20 @@ async def send_template_message(
     central = await _templates_da.get_template(session, org_id=conv.org_id, template_id=template_id)
     if central is not None:
         if central.channel != ConversationChannel.whatsapp:
-            raise ValueError("Only WhatsApp templates can be sent through this endpoint.")
+            raise TemplateSendRejected(
+                "template_wrong_channel",
+                "Only WhatsApp templates can be sent through this endpoint.",
+            )
         if central.external_status != TemplateExternalStatus.approved:
-            raise ValueError(
-                "Only APPROVED templates can be sent — this template is not approved yet."
+            raise TemplateSendRejected(
+                "template_not_approved",
+                "Only APPROVED templates can be sent — this template is not approved yet.",
             )
         if not central.is_active:
-            raise ValueError(
+            raise TemplateSendRejected(
+                "template_inactive",
                 "This template is inactive; ask an Owner / Admin to activate it "
-                "in the templates library before sending."
+                "in the templates library before sending.",
             )
         template = await ensure_wa_extension_row(session, template=central)
     else:
@@ -843,8 +860,9 @@ async def send_template_message(
         if template is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="template not found")
         if (template.status or "").upper() != "APPROVED":
-            raise ValueError(
-                "Only APPROVED templates can be sent — this template is not approved yet."
+            raise TemplateSendRejected(
+                "template_not_approved",
+                "Only APPROVED templates can be sent — this template is not approved yet.",
             )
 
     # Auto-resolve any CRM named variables (`{{contact.full_name}}`,
@@ -906,15 +924,18 @@ async def send_template_message(
         try:
             parsed_variables[int(key)] = val
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"variables key {key!r} must be a numeric string") from exc
+            raise TemplateSendRejected(
+                "bad_variable_key", f"variables key {key!r} must be a numeric string"
+            ) from exc
 
     # Sanity-check against Meta's expectation. `variable_count` is the
     # positional-only count on `template.body`; for a named-var
     # template that's 0, so trust the higher of the two.
     expected = max(int(template.variable_count or 0), len(auto_variables))
     if len(parsed_variables) < expected:
-        raise ValueError(
-            f"Template expects {expected} variable(s) but got {len(parsed_variables)}."
+        raise TemplateSendRejected(
+            "template_variables_missing",
+            f"Template expects {expected} variable(s) but got {len(parsed_variables)}.",
         )
 
     resolved_phone_id = send_from_phone_id or getattr(conv, "received_via_phone_id", None)
@@ -962,6 +983,7 @@ async def send_template_message(
                 "language": template.language,
                 "variables": {str(k): v for k, v in parsed_variables.items()},
             },
+            **(extra_payload or {}),
         },
         sent_at=sent_at,
     )

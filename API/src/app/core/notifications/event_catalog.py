@@ -64,6 +64,15 @@ CATALOG: list[NotificationEventEntry] = [
         description="A task you own was marked complete.",
         group="Tasks",
     ),
+    # --- Follow-ups -------------------------------------------------------
+    NotificationEventEntry(
+        event_type="follow_up.auto_send_cancelled",
+        label="My scheduled follow-up message was cancelled",
+        description=(
+            "An auto-message you scheduled on a follow-up was cancelled or replaced by a colleague."
+        ),
+        group="Follow-ups",
+    ),
     # --- Messages ---------------------------------------------------------
     NotificationEventEntry(
         event_type="conversation.message",
@@ -82,8 +91,7 @@ CATALOG: list[NotificationEventEntry] = [
         event_type="templates.external_status_changed",
         label="WhatsApp template status changed",
         description=(
-            "A WhatsApp Business template you own was approved, rejected, "
-            "or paused by Meta."
+            "A WhatsApp Business template you own was approved, rejected, or paused by Meta."
         ),
         group="Templates",
     ),

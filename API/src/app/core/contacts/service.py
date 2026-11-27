@@ -1489,7 +1489,7 @@ async def stage_tag_delta(
     (bulk): those contacts are skipped and the rest are changed.
     """
     unique_ids = list(dict.fromkeys(contact_ids))
-    contacts = await data_access.lock_contacts_for_tag_change(
+    contacts = await data_access.lock_contacts(
         session, org_id=org_id, contact_ids=unique_ids
     )
     if strict and len(contacts) != len(unique_ids):
