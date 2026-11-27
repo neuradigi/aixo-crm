@@ -446,3 +446,75 @@ async def housekeep(session: AsyncSession) -> int:
     cancelled = await auto_send_da.cancel_scheduled_for_dead_tasks(session, now=datetime.now(UTC))
     await session.commit()
     return cancelled
+
+
+async def cancel_on_reply(
+    session: AsyncSession, *, org_id: uuid.UUID, contact_id: uuid.UUID
+) -> int:
+    """The contact messaged us: cancel their scheduled (or claimed, not yet
+    sending) auto-sends — the conversation has moved on since the
+    follow-up was set. Writes a timeline entry, commits, then tells the
+    follow-up's assignee and whoever scheduled it. Returns how many were
+    cancelled."""
+    pending = await auto_send_da.list_pending_auto_sends_for_contact(
+        session, org_id=org_id, contact_id=contact_id
+    )
+    ids = [
+        row.id
+        for row, _ in pending
+        if row.status in (FollowUpAutoSendStatus.scheduled, FollowUpAutoSendStatus.claimed)
+    ]
+    cancelled_ids = set(
+        await auto_send_da.cancel_pending_auto_sends(
+            session,
+            org_id=org_id,
+            ids=ids,
+            cancelled_by_id=None,
+            reason="lead_replied",
+            now=datetime.now(UTC),
+        )
+    )
+    if not cancelled_ids:
+        return 0
+
+    cancelled: list[tuple[FollowUpAutoSend, Task]] = []
+    for row_id in cancelled_ids:
+        found = await auto_send_da.get_auto_send(session, org_id=org_id, auto_send_id=row_id)
+        if found is not None:
+            cancelled.append(found)
+    for row, _task in cancelled:
+        await activities_service.record_in_session(
+            session,
+            org_id=org_id,
+            entity_type="lead",
+            entity_id=row.lead_id,
+            type=ActivityType.task,
+            payload={
+                "text": f"Scheduled auto-message “{row.template_name}” cancelled — the lead replied",
+                "auto_send_id": str(row.id),
+                "status": FollowUpAutoSendStatus.cancelled.value,
+                "reason": "lead_replied",
+            },
+        )
+    await session.commit()
+
+    for row, task in cancelled:
+        await audit.log(
+            "leads.auto_send_cancelled",
+            entity_type="follow_up_auto_send",
+            entity_id=row.id,
+            after={"reason": "lead_replied"},
+        )
+        for user_id in {task.assigned_to_id, row.created_by_id}:
+            await notify(
+                org_id=org_id,
+                user_id=user_id,
+                type="follow_up.auto_send_cancelled",
+                title="Auto-message cancelled — the lead replied",
+                body=(
+                    f"“{row.template_name}” was not sent because the lead messaged you first. "
+                    "Check the conversation."
+                ),
+                payload={"lead_id": str(row.lead_id), "auto_send_id": str(row.id)},
+            )
+    return len(cancelled)

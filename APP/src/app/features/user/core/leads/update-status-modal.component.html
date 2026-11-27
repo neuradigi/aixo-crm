@@ -302,6 +302,18 @@
               formControlName="next_follow_up_type"
             />
           </label>
+
+          @if (showAutoSend()) {
+            <app-follow-up-auto-send-picker
+              class="block sm:col-span-2"
+              [leadId]="lead().id"
+              [contact]="contact()"
+              [channel]="autoSendChannel()"
+              [dueAt]="form.controls.next_follow_up_at.value"
+              [serverError]="autoSendError()"
+              [(choice)]="autoSendChoice"
+            />
+          }
         </div>
 
         <!-- Follow-Up History table embedded below the form, per sir's

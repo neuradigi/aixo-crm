@@ -158,6 +158,35 @@ export interface FollowUpContactBasics {
 export interface NextFollowUpSpec {
   due_at: string;
   followup_type: 'call' | 'whatsapp' | 'email' | 'document' | 'meeting' | 'other';
+  /** Saved template to send to the lead's contact when the follow-up
+   *  comes due (WhatsApp / Email only; needs `conversations.write`). */
+  auto_send_template_id?: string | null;
+  /** Cancel the person's existing scheduled auto-message and schedule
+   *  this one instead (otherwise 409 `auto_send_exists`). */
+  replace_existing_auto_send?: boolean;
+}
+
+export type AutoSendStatus =
+  | 'scheduled'
+  | 'claimed'
+  | 'sending'
+  | 'sent'
+  | 'failed'
+  | 'skipped'
+  | 'cancelled';
+
+/** A follow-up's auto-message as the API reports it. `due_at` is the
+ *  follow-up's live due time, which is when it sends. */
+export interface AutoSendSummary {
+  id: string;
+  task_id: string;
+  lead_id: string;
+  status: AutoSendStatus;
+  channel: 'whatsapp' | 'email';
+  template_name: string;
+  due_at: string | null;
+  reason: string | null;
+  created_by_id: string;
 }
 
 /** Payload for ``POST /leads/{id}/log-update``. Mirrors the backend
@@ -192,6 +221,7 @@ export interface LogUpdateResponse {
   lead: Lead;
   next_follow_up_task_id: string | null;
   contact_tags: string[] | null;
+  auto_send: AutoSendSummary | null;
 }
 
 /** Header-strip roll-up rendered above the kanban / list view (F23).
@@ -387,6 +417,12 @@ export class LeadsApiService extends BaseCrudApiService<Lead, LeadCreate, LeadUp
    *  ``update-status-modal.component.ts``. */
   logUpdate(id: string, payload: LogUpdateRequest): Observable<LogUpdateResponse> {
     return this.http.post<LogUpdateResponse>(`${this.base}/${id}/log-update`, payload);
+  }
+
+  /** The pending auto-message of this lead's person (on any of their
+   *  leads), or null. */
+  getPendingAutoSend(leadId: string): Observable<AutoSendSummary | null> {
+    return this.http.get<AutoSendSummary | null>(`${this.base}/${leadId}/auto-send`);
   }
 
   /** F4 — Bulk move-stage. Moves every id to the same `to_stage`;

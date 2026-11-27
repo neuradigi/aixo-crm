@@ -66,6 +66,12 @@ CATALOG: list[NotificationEventEntry] = [
     ),
     # --- Follow-ups -------------------------------------------------------
     NotificationEventEntry(
+        event_type="follow_up.due",
+        label="A follow-up I own is due now",
+        description="One of your follow-ups (call, WhatsApp, email, meeting…) has come due.",
+        group="Follow-ups",
+    ),
+    NotificationEventEntry(
         event_type="follow_up.auto_send_cancelled",
         label="My scheduled follow-up message was cancelled",
         description=(

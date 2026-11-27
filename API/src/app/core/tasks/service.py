@@ -17,7 +17,7 @@ status changes for free.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from fastapi import HTTPException, status
@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.core import activities
 from src.app.core.activities.models import ActivityType
 from src.app.core.tasks import data_access as _da
-from src.app.core.tasks.models import Task, TaskPriority, TaskStatus
+from src.app.core.tasks.models import Task, TaskFollowupType, TaskPriority, TaskStatus
 from src.app.core.tasks.schemas import TaskCreate, TaskOut, TaskUpdate
 from src.app.shared.audit import log_entity_change, snapshot
 from src.app.shared.custom_fields import validate_custom_data
@@ -543,6 +543,8 @@ async def update_task(
         await auto_send_service.guard_reschedule(
             session, org_id=task.org_id, task_id=task.id, new_due_at=changes["due_at"]
         )
+        # A new due time gets its own "follow-up due" reminder.
+        task.due_reminder_sent_at = None
     for key, value in changes.items():
         setattr(task, key, value)
     # Bump `last_activity_at` independently of the activity-insert
@@ -744,6 +746,59 @@ async def to_task_out_list(
             )
         )
     return out
+
+
+# How far back a due follow-up still gets its "due now" bell. Anything older
+# (worker downtime, deploy day) is not reminded — the dashboard's Overdue
+# bucket already shows it.
+FOLLOW_UP_REMINDER_WINDOW = timedelta(hours=1)
+
+_FOLLOWUP_TYPE_LABELS = {
+    TaskFollowupType.call: "Call",
+    TaskFollowupType.whatsapp: "WhatsApp",
+    TaskFollowupType.email: "Email",
+    TaskFollowupType.meeting: "Meeting",
+    TaskFollowupType.document: "Document",
+    TaskFollowupType.other: "Follow-up",
+}
+
+
+async def send_due_follow_up_reminders(session: AsyncSession) -> int:
+    """Bell each assignee once when an open follow-up comes due (within the
+    last :data:`FOLLOW_UP_REMINDER_WINDOW`). Runs every minute across every
+    org; the claim commits first, so a failed bell is never re-sent.
+    Returns how many reminders went out."""
+    from src.app.core.notifications import service as notifications
+
+    now = datetime.now(UTC)
+    due = await _da.claim_due_follow_up_reminders(
+        session, now=now, window_start=now - FOLLOW_UP_REMINDER_WINDOW
+    )
+    await session.commit()
+    if not due:
+        return 0
+
+    by_org: dict[uuid.UUID, list[Task]] = {}
+    for task in due:
+        by_org.setdefault(task.org_id, []).append(task)
+    for org_id, tasks in by_org.items():
+        labelled = await to_task_out_list(session, org_id=org_id, rows=tasks)
+        for task in labelled:
+            kind = _FOLLOWUP_TYPE_LABELS.get(task.followup_type, "Follow-up")
+            who = f" with {task.related_label}" if task.related_label else ""
+            await notifications.notify(
+                org_id=org_id,
+                user_id=task.assigned_to_id,
+                type="follow_up.due",
+                title="Follow-up due now",
+                body=f"{kind} follow-up{who} is due: {task.title}",
+                payload={
+                    "task_id": str(task.id),
+                    "entity_type": task.related_entity_type,
+                    "entity_id": str(task.related_entity_id) if task.related_entity_id else None,
+                },
+            )
+    return len(due)
 
 
 async def count_task_buckets(

@@ -19,9 +19,10 @@ Operations grouped by concern:
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, func, nulls_last, select
+from sqlalchemy import delete, func, nulls_last, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import Select
 
@@ -179,3 +180,40 @@ __all__ = [
     "paginate_tasks_select",
     "user_has_active_membership",
 ]
+
+
+async def claim_due_follow_up_reminders(
+    session: AsyncSession, *, now: datetime, window_start: datetime
+) -> list[Task]:
+    """Stamp ``due_reminder_sent_at`` on open follow-ups (``followup_type``
+    set) that came due in ``(window_start, now]`` and haven't been
+    reminded, across every org, and return them. One UPDATE … RETURNING,
+    so overlapping sweeps can't remind twice. Follow-ups with a pending
+    auto-message are left out — the auto-send reports its own outcome."""
+    # Local import: the leads package imports the tasks module during its
+    # own initialisation.
+    from src.app.core.leads.auto_send.models import PENDING_STATUSES, FollowUpAutoSend
+
+    pending_auto_send = (
+        select(FollowUpAutoSend.id)
+        .where(
+            FollowUpAutoSend.task_id == Task.id,
+            FollowUpAutoSend.status.in_(PENDING_STATUSES),
+        )
+        .exists()
+    )
+    result = await session.execute(
+        update(Task)
+        .where(
+            Task.status == TaskStatus.open,
+            Task.followup_type.is_not(None),
+            Task.due_at > window_start,
+            Task.due_at <= now,
+            Task.due_reminder_sent_at.is_(None),
+            ~pending_auto_send,
+        )
+        .values(due_reminder_sent_at=now)
+        .returning(Task)
+        .execution_options(synchronize_session=False)
+    )
+    return list(result.scalars().all())

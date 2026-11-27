@@ -68,7 +68,7 @@ async def cancel_pending_auto_sends(
     *,
     org_id: uuid.UUID,
     ids: list[uuid.UUID],
-    cancelled_by_id: uuid.UUID,
+    cancelled_by_id: uuid.UUID | None,
     reason: str,
     now: datetime,
 ) -> list[uuid.UUID]:

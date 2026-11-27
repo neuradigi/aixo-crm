@@ -117,6 +117,13 @@ class Task(Base, TenantScoped):
         DateTime(timezone=True),
         nullable=True,
     )
+    # When the "follow-up due" bell went to the assignee (migration 0246).
+    # Cleared whenever ``due_at`` changes so a rescheduled follow-up is
+    # reminded again at its new time.
+    due_reminder_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     # T4 — Rule 3: every entity that supports custom fields uses a
     # ``custom_data`` JSONB column + renders the form via the shared
     # dynamic-forms path. Added by migration 0162.

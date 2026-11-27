@@ -1,7 +1,9 @@
 """Celery tasks for the follow-ups module.
 
-Currently one task:
+Two tasks:
 
+  * :func:`send_follow_up_due_reminders` — every 60 s, the "follow-up due
+    now" bell to each assignee (see ``tasks.service``).
   * :func:`groom_stale_open_tasks` — nightly cross-tenant sweep that
     flips ``open`` tasks whose ``due_at`` is more than 7 days in the
     past to the terminal ``missed`` status. Bounds the size of the
@@ -25,7 +27,6 @@ import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
-
 
 try:
     from celery import shared_task as _shared_task
@@ -77,7 +78,6 @@ def groom_stale_open_tasks() -> dict[str, Any]:
 async def _groom_stale_open_tasks_async() -> dict[str, Any]:
     from sqlalchemy import text
 
-    from src.app.core.audit import service as audit_service
     from src.app.shared.db import async_session
 
     swept = 0
@@ -143,4 +143,23 @@ async def _write_audit(*, org_id: uuid.UUID, task_id: uuid.UUID) -> None:
         reset_context(token)
 
 
-__all__ = ["groom_stale_open_tasks"]
+@_shared_task(
+    name="src.app.core.tasks.tasks.send_follow_up_due_reminders",
+)
+def send_follow_up_due_reminders() -> dict[str, Any]:
+    """Beat-triggered every 60 s. Bells each assignee once when an open
+    follow-up comes due (tasks/follow-up-auto-send Step 7); the work and
+    its transaction live in the tasks service."""
+    return asyncio.run(_send_follow_up_due_reminders_async())
+
+
+async def _send_follow_up_due_reminders_async() -> dict[str, Any]:
+    from src.app.core.tasks.service import send_due_follow_up_reminders
+    from src.app.shared.db import async_session
+
+    async with async_session() as session:
+        reminded = await send_due_follow_up_reminders(session)
+    return {"reminded": reminded, "at": datetime.now(UTC).isoformat()}
+
+
+__all__ = ["groom_stale_open_tasks", "send_follow_up_due_reminders"]

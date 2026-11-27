@@ -51,8 +51,14 @@ import { TagInputComponent } from '../shared/forms/tag-input.component';
 import { MobileSelectComponent, MobileSelectOption } from '../shared/forms/mobile-select.component';
 import { UserMini, UsersDirectoryService } from '../shared/services/users-directory.service';
 import { commonValidators } from '../shared/validators';
+import {
+  AutoSendChannel,
+  AutoSendChoice,
+  FollowUpAutoSendPickerComponent,
+} from './follow-up-auto-send-picker.component';
 import { LeadFollowUpsPanelComponent } from './lead-follow-ups-panel.component';
 import {
+  AutoSendSummary,
   Lead,
   LeadSource,
   LeadsApiService,
@@ -135,6 +141,7 @@ const LOST_REASON_OPTIONS: ReadonlyArray<MobileSelectOption> = [
     MobileDateTimeComponent,
     LeadFollowUpsPanelComponent,
     TagInputComponent,
+    FollowUpAutoSendPickerComponent,
   ],
   templateUrl: './update-status-modal.component.html',
 })
@@ -173,7 +180,15 @@ export class UpdateStatusModalComponent {
     lead: Lead;
     next_follow_up_task_id: string | null;
     contact_tags: string[] | null;
+    auto_send: AutoSendSummary | null;
   }>();
+
+  /** Scheduling a message is the deferred form of the inbox's manual
+   *  template send, so it needs the same `conversations.write`. */
+  protected readonly canAutoSend = computed(() => this.auth.hasPermission('conversations.write'));
+  protected readonly autoSendChoice = signal<AutoSendChoice | null>(null);
+  /** Auto-send refusal from the last save, shown under the picker. */
+  protected readonly autoSendError = signal<string | null>(null);
 
   /** Tags need `contacts.write` (the server enforces it too) and can't
    *  change on an anonymised contact. */
@@ -291,12 +306,26 @@ export class UpdateStatusModalComponent {
     void this.formValue();
     return this.form.dirty;
   });
+  /** The follow-up channel when it can carry an auto-message. */
+  protected readonly autoSendChannel = computed<AutoSendChannel | null>(() => {
+    const type = this.formValue()?.next_follow_up_type;
+    return type === 'whatsapp' || type === 'email' ? type : null;
+  });
+  protected readonly showAutoSend = computed(
+    () =>
+      this.canAutoSend() &&
+      this.autoSendChannel() !== null &&
+      !!this.formValue()?.next_follow_up_at,
+  );
+
   protected readonly submitDisabled = computed(
     () =>
       this.submitting() ||
       !this.isFormValid() ||
-      !this.isFormDirty() ||
-      this.stageDriftedTo() !== null,
+      // Picking a template is a change even when no form field moved.
+      !(this.isFormDirty() || !!this.autoSendChoice()) ||
+      this.stageDriftedTo() !== null ||
+      (this.showAutoSend() && !!this.autoSendChoice()?.decisionPending),
   );
 
   /** Captured on open. Sent as ``if_current_stage`` so the backend
@@ -362,6 +391,8 @@ export class UpdateStatusModalComponent {
         this.form.controls.contact_tags.disable({ emitEvent: false });
       }
       this.tagsError.set(null);
+      this.autoSendChoice.set(null);
+      this.autoSendError.set(null);
       this.autoRemarksSeed = '';
       // Clear per-submit error state whenever the modal re-opens with
       // a different lead.
@@ -489,6 +520,7 @@ export class UpdateStatusModalComponent {
       }
     }
     this.tagsError.set(null);
+    this.autoSendError.set(null);
 
     if (raw.pipeline_stage !== l.pipeline_stage) {
       payload.pipeline_stage = raw.pipeline_stage;
@@ -512,6 +544,11 @@ export class UpdateStatusModalComponent {
         due_at: new Date(raw.next_follow_up_at).toISOString(),
         followup_type: raw.next_follow_up_type,
       };
+      const autoSend = this.autoSendChoice();
+      if (this.showAutoSend() && autoSend) {
+        payload.next_follow_up.auto_send_template_id = autoSend.templateId;
+        payload.next_follow_up.replace_existing_auto_send = autoSend.replace;
+      }
     }
     if (this.stageIsLost()) {
       payload.lost_reason = raw.lost_reason || null;
@@ -528,11 +565,17 @@ export class UpdateStatusModalComponent {
             lead: resp.lead,
             next_follow_up_task_id: resp.next_follow_up_task_id,
             contact_tags: resp.contact_tags,
+            auto_send: resp.auto_send,
           });
         },
         error: (err: HttpErrorResponse) => {
           this.submitting.set(false);
           const detailError = err.error?.detail?.error as string | undefined;
+          if (detailError?.startsWith('auto_send_')) {
+            // Nothing was saved (one transaction); every typed value stays.
+            this.autoSendError.set(extractApiError(err) ?? 'Could not schedule the auto-message.');
+            return;
+          }
           if (detailError === 'tag_limit' || detailError === 'contact_anonymised') {
             // Nothing was saved (one transaction); every typed value stays.
             this.tagsError.set(extractApiError(err) ?? 'Could not change tags.');

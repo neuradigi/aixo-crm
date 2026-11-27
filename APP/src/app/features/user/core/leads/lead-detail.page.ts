@@ -32,7 +32,13 @@ import {
 import { UsersDirectoryService } from '../shared/services/users-directory.service';
 import { Contact, ContactsApiService } from '../contacts/contacts-api.service';
 import { PipelineStage, PipelinesApiService } from '../pipelines/pipelines-api.service';
-import { Lead, LeadCreate, LeadUpdate, LeadsApiService } from './leads-api.service';
+import {
+  AutoSendSummary,
+  Lead,
+  LeadCreate,
+  LeadUpdate,
+  LeadsApiService,
+} from './leads-api.service';
 import { LeadFormModalComponent } from './lead-form-modal.component';
 import { ContactTagsEditorComponent } from '../contacts/contact-tags-editor.component';
 import { LeadFollowUpsPanelComponent } from './lead-follow-ups-panel.component';
@@ -308,6 +314,7 @@ export class LeadDetailPageComponent implements OnInit {
     lead: Lead;
     next_follow_up_task_id: string | null;
     contact_tags: string[] | null;
+    auto_send: AutoSendSummary | null;
   }): void {
     this.lead.set(event.lead);
     if (event.contact_tags !== null) this.onContactTagsChanged(event.contact_tags);
@@ -324,8 +331,9 @@ export class LeadDetailPageComponent implements OnInit {
       this.followUpsPanel()?.reload();
     }
     this.toast.success('Status updated.', {
-      subtitle:
-        event.next_follow_up_task_id !== null
+      subtitle: event.auto_send
+        ? `Auto-message “${event.auto_send.template_name}” will send at the follow-up time.`
+        : event.next_follow_up_task_id !== null
           ? 'A follow-up task has been scheduled.'
           : 'Your changes are saved to the timeline.',
     });

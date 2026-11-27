@@ -251,6 +251,11 @@ beat_schedule = {
         "task": "src.app.core.leads.auto_send.tasks.sweep_auto_sends",
         "schedule": 60.0,
     },
+    # tasks/follow-up-auto-send Step 7 — "follow-up due now" bells.
+    "tasks-follow-up-due-reminders": {
+        "task": "src.app.core.tasks.tasks.send_follow_up_due_reminders",
+        "schedule": 60.0,
+    },
     "tasks-groom-stale-open": {
         "task": "src.app.core.tasks.tasks.groom_stale_open_tasks",
         "schedule": crontab(hour=2, minute=0),
