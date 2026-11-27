@@ -777,6 +777,39 @@ async def send_outbound(
     return msg
 
 
+async def named_variable_data(
+    session: AsyncSession, *, org_id: uuid.UUID, contact_id: uuid.UUID | None
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """The ``contact`` and ``org`` values a WhatsApp template's named
+    variables (``{{contact.full_name}}``, ``{{org.name}}``…) are filled
+    from — shared by the send and the follow-up auto-send preview."""
+    from src.app.core.tenants import data_access as _tenants_da
+
+    contact = await contacts_service.get_contact(session, contact_id) if contact_id else None
+    contact_data: dict[str, Any] | None = None
+    if contact is not None:
+        full_name = contact.full_name or ""
+        parts = full_name.split(None, 1) if full_name else []
+        contact_data = {
+            "id": str(contact.id),
+            "first_name": parts[0] if parts else "",
+            "last_name": parts[1] if len(parts) > 1 else "",
+            "full_name": full_name,
+            "email": contact.email or "",
+            "phone": contact.phone or "",
+            "source": getattr(contact, "source", None) or "",
+            "custom_data": dict(getattr(contact, "custom_data", None) or {}),
+        }
+    org = await _tenants_da.get_organization_by_id(session, org_id)
+    org_data: dict[str, Any] | None = None
+    if org is not None:
+        org_data = {
+            "name": org.name or "",
+            "support_email": getattr(org, "support_email", "") or "",
+        }
+    return contact_data, org_data
+
+
 async def send_template_message(
     session: AsyncSession,
     *,
@@ -812,7 +845,6 @@ async def send_template_message(
     from src.app.core.templates import data_access as _templates_da
     from src.app.core.templates.models import TemplateExternalStatus
     from src.app.core.templates.service import ensure_wa_extension_row
-    from src.app.core.tenants import data_access as _tenants_da
 
     conv = await get_conversation(session, conversation_id)
     if conv.channel != ConversationChannel.whatsapp:
@@ -888,30 +920,9 @@ async def send_template_message(
     contact_data: dict[str, Any] | None = None
     org_data: dict[str, Any] | None = None
     if named_body:
-        contact = (
-            await contacts_service.get_contact(session, conv.contact_id)
-            if conv.contact_id
-            else None
+        contact_data, org_data = await named_variable_data(
+            session, org_id=conv.org_id, contact_id=conv.contact_id
         )
-        if contact is not None:
-            full_name = contact.full_name or ""
-            parts = full_name.split(None, 1) if full_name else []
-            contact_data = {
-                "id": str(contact.id),
-                "first_name": parts[0] if parts else "",
-                "last_name": parts[1] if len(parts) > 1 else "",
-                "full_name": full_name,
-                "email": contact.email or "",
-                "phone": contact.phone or "",
-                "source": getattr(contact, "source", None) or "",
-                "custom_data": dict(getattr(contact, "custom_data", None) or {}),
-            }
-        org = await _tenants_da.get_organization_by_id(session, conv.org_id)
-        if org is not None:
-            org_data = {
-                "name": org.name or "",
-                "support_email": getattr(org, "support_email", "") or "",
-            }
     auto_variables = resolve_named_body_to_positional_params(named_body, contact_data, org_data)
 
     # Convert string-keyed operator variables (from the inline picker's

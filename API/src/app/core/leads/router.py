@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.core.auth.dependencies import require_permissions
 from src.app.core.leads import scoring
-from src.app.core.leads.auto_send.schemas import AutoSendSummary
+from src.app.core.leads.auto_send.schemas import AutoSendPreview, AutoSendSummary
 from src.app.core.leads.csv_export import export_filename, export_rows
 from src.app.core.leads.ingest import ingest as ingest_lead
 from src.app.core.leads.models import LeadStatus
@@ -76,6 +76,7 @@ from src.app.core.leads.service import (
     log_update_for_lead,
     move_stage_for_lead,
     pipeline_value_rollup,
+    preview_auto_send_for_caller,
     reassign_lead,
     update_lead,
     update_scoring_rule,
@@ -581,6 +582,20 @@ async def get_lead_auto_send_endpoint(
     """The pending auto-send of this lead's person, or null — lets the
     Update Status modal warn before scheduling a second one."""
     return await get_pending_auto_send_for_lead(db, lead_id=lead_id, caller=user)
+
+
+@router.get("/{lead_id}/auto-send/preview", response_model=AutoSendPreview)
+async def preview_lead_auto_send_endpoint(
+    lead_id: uuid.UUID,
+    template_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permissions("leads.read", "conversations.write")),
+) -> AutoSendPreview:
+    """The template filled with this lead's details, exactly as the
+    auto-send would send it. Read-only — sends nothing."""
+    return await preview_auto_send_for_caller(
+        db, lead_id=lead_id, template_id=template_id, caller=user
+    )
 
 
 # --- Reassign + bulk endpoints ----------------------------------------------

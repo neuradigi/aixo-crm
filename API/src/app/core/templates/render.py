@@ -142,22 +142,19 @@ def render_email_template(
     that path) can swap to this helper without touching its own
     structure.
 
-    ``body_html`` and ``body_text`` are populated from the central
-    row's single ``body_text`` column — the central library stores
-    one body per template (HTML or plain; treated as-is by the email
-    sender). ``body_text`` is the autoescape-off plain rendering;
-    ``body_html`` is the autoescape-on HTML rendering. For a pure-
-    text template the two are identical except for HTML-entity
-    escaping; for an HTML template the HTML side preserves operator
-    markup while the text side strips it conservatively (the email
-    sender uses the HTML for the multipart/alternative HTML part and
-    falls back to the text side for the plain part).
+    ``body_text`` is the autoescape-off rendering of the template's
+    ``body_text``. ``body_html`` is the autoescape-on rendering of the
+    template's own ``body_html`` (its designed email) when it has one,
+    else of ``body_text`` — the same choice campaigns make, so the
+    email sender's multipart/alternative HTML part carries the design
+    and the plain part the text.
     """
     subject_src = template.subject or ""
     body_src = template.body_text or ""
+    html_src = template.body_html or body_src
     try:
         subject = render(subject_src, context, autoescape=True) if subject_src else ""
-        body_html = render(body_src, context, autoescape=True)
+        body_html = render(html_src, context, autoescape=True)
         body_text = render(body_src, context, autoescape=False)
     except MissingVariable as exc:
         raise HTTPException(

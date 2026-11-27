@@ -30,6 +30,7 @@ from src.app.core.conversations.adapters.whatsapp import (
 )
 from src.app.core.conversations.template_send_service import (
     contact_address,
+    preview_template_for_contact,
     template_unavailable_reason,
 )
 from src.app.core.email import data_access as email_da
@@ -44,7 +45,7 @@ from src.app.core.leads.auto_send.models import (
     FollowUpAutoSendChannel,
     FollowUpAutoSendStatus,
 )
-from src.app.core.leads.auto_send.schemas import AutoSendSummary
+from src.app.core.leads.auto_send.schemas import AutoSendPreview, AutoSendSummary
 from src.app.core.leads.models import Lead
 from src.app.core.notifications.service import notify
 from src.app.core.tasks.models import Task, TaskFollowupType
@@ -334,6 +335,39 @@ async def publish_auto_send_staged(
                 ),
                 payload={"lead_id": str(old.lead_id), "auto_send_id": str(old.id)},
             )
+
+
+async def preview_auto_send(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    lead: Lead,
+    template_id: uuid.UUID,
+    sender_user_id: uuid.UUID,
+) -> AutoSendPreview:
+    """``template_id`` filled with ``lead``'s details, as the auto-send
+    would send it from ``sender_user_id``. 404 for an unknown template or
+    one that can't be auto-sent on any channel."""
+    template = await templates_da.get_template(session, org_id=org_id, template_id=template_id)
+    channels = {c.value: c for c in FollowUpAutoSendChannel}
+    channel = channels.get(template.channel.value) if template is not None else None
+    if template is None or channel is None:
+        raise HTTPException(status_code=404, detail="template not found")
+    preview = await preview_template_for_contact(
+        session,
+        org_id=org_id,
+        contact_id=lead.contact_id,
+        lead_id=lead.id,
+        template=template,
+        sender_user_id=sender_user_id,
+    )
+    return AutoSendPreview(
+        channel=channel,
+        subject=preview.subject,
+        body_text=preview.body_text,
+        body_html=preview.body_html,
+        problem=preview.problem,
+    )
 
 
 async def get_pending_auto_send(

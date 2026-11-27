@@ -49,6 +49,10 @@ from src.app.core.conversations.exceptions import TemplateSendRejected
 from src.app.core.conversations.models import ConversationChannel
 from src.app.core.email import data_access as email_da
 from src.app.core.integrations.whatsapp.block_list import is_blocked
+from src.app.core.integrations.whatsapp.meta_variables import (
+    convert_to_positional,
+    resolve_named_body_to_positional_params,
+)
 from src.app.core.templates import data_access as templates_da
 from src.app.core.templates import render as templates_render
 from src.app.core.templates.models import (
@@ -56,6 +60,7 @@ from src.app.core.templates.models import (
     TemplateExternalStatus,
     TemplateInternalStatus,
 )
+from src.app.core.templates.variables import resolve
 from src.app.core.tenants import service as tenants_service
 from src.app.core.users import service as users_service
 
@@ -72,6 +77,16 @@ class SendOutcome:
     code: str | None = None
     message_id: uuid.UUID | None = None
     retry_after_seconds: int | None = None
+
+
+@dataclass(frozen=True)
+class TemplatePreview:
+    subject: str | None
+    body_text: str
+    # The email's designed HTML part; None for WhatsApp and text-only email.
+    body_html: str | None
+    # Set when the real send could not fill the template for this contact.
+    problem: str | None = None
 
 
 def template_unavailable_reason(template: MessageTemplate | None) -> str | None:
@@ -212,19 +227,13 @@ async def _send_email(
     sender_user_id: uuid.UUID,
     extra_payload: dict[str, Any],
 ) -> SendOutcome:
-    org = await tenants_service.get_organization_by_id(session, org_id)
-    sender = await users_service.get_user_by_uuid(session, sender_user_id)
-    sender_info = getattr(sender, "info", None)
     try:
-        context = await templates_render.build_context(
+        context = await _email_context(
             session,
-            org=org,
+            org_id=org_id,
             contact_id=contact_id,
             lead_id=lead_id,
             sender_user_id=sender_user_id,
-            sender_first_name=getattr(sender_info, "first_name", None),
-            sender_last_name=getattr(sender_info, "last_name", None),
-            sender_email=getattr(sender, "email", None),
         )
         rendered = templates_render.render_email_template(template, context)
     except HTTPException:
@@ -260,3 +269,80 @@ async def _send_email(
         log.exception("template_send: email send error contact=%s", contact_id)
         return SendOutcome("failed", "send_error")
     return SendOutcome("sent", message_id=result.message.id)
+
+
+async def _email_context(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    contact_id: uuid.UUID,
+    lead_id: uuid.UUID | None,
+    sender_user_id: uuid.UUID,
+) -> dict[str, Any]:
+    """The variables an email template is filled from: contact, lead,
+    sender and org. Raises HTTP 404 when the contact is gone."""
+    org = await tenants_service.get_organization_by_id(session, org_id)
+    sender = await users_service.get_user_by_uuid(session, sender_user_id)
+    sender_info = getattr(sender, "info", None)
+    return await templates_render.build_context(
+        session,
+        org=org,
+        contact_id=contact_id,
+        lead_id=lead_id,
+        sender_user_id=sender_user_id,
+        sender_first_name=getattr(sender_info, "first_name", None),
+        sender_last_name=getattr(sender_info, "last_name", None),
+        sender_email=getattr(sender, "email", None),
+    )
+
+
+async def preview_template_for_contact(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    contact_id: uuid.UUID,
+    lead_id: uuid.UUID | None,
+    template: MessageTemplate,
+    sender_user_id: uuid.UUID,
+) -> TemplatePreview:
+    """What :func:`send_template_to_contact` would send this contact,
+    filled the same way: WhatsApp from the contact + org (a blank value
+    becomes the fallback Meta is given), email from the contact, lead,
+    sender and org. Sends nothing."""
+    if template.channel == ConversationChannel.whatsapp:
+        named_body = template.body_text or ""
+        contact_data, org_data = await conversations_service.named_variable_data(
+            session, org_id=org_id, contact_id=contact_id
+        )
+        text, _ = convert_to_positional(named_body)
+        params = resolve_named_body_to_positional_params(named_body, contact_data, org_data)
+        for index, value in params.items():
+            text = text.replace("{{" + str(index) + "}}", value)
+        return TemplatePreview(subject=None, body_text=text, body_html=None)
+
+    context = await _email_context(
+        session,
+        org_id=org_id,
+        contact_id=contact_id,
+        lead_id=lead_id,
+        sender_user_id=sender_user_id,
+    )
+    has_design = bool(template.body_html)
+    try:
+        rendered = templates_render.render_email_template(template, context)
+    except HTTPException:
+        # The send would fail (`render_failed`); show what is known.
+        return TemplatePreview(
+            subject=resolve(template.subject or "", context) or template.name,
+            body_text=resolve(template.body_text or "", context, autoescape=False),
+            body_html=resolve(template.body_html or "", context) if has_design else None,
+            problem=(
+                "Some fields in this template have no value for this lead, "
+                "so the email would not be sent."
+            ),
+        )
+    return TemplatePreview(
+        subject=rendered["subject"] or template.name,
+        body_text=rendered["body_text"],
+        body_html=rendered["body_html"] if has_design else None,
+    )

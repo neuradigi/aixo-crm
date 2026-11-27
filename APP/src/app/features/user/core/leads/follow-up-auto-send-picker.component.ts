@@ -18,7 +18,7 @@ import { Contact } from '../contacts/contacts-api.service';
 import { MobileDateTimeComponent } from '../shared/forms/mobile-datetime.component';
 import { MobileSelectComponent, MobileSelectOption } from '../shared/forms/mobile-select.component';
 import { TemplateRead, TemplatesApiService } from '../templates/templates-api.service';
-import { AutoSendSummary, LeadsApiService } from './leads-api.service';
+import { AutoSendPreview, AutoSendSummary, LeadsApiService } from './leads-api.service';
 
 export type AutoSendChannel = 'whatsapp' | 'email';
 
@@ -45,7 +45,8 @@ const SEND_WHEN_OPTIONS: MobileSelectOption[] = [
  * "Auto-send template (optional)" for a WhatsApp / Email follow-up in the
  * Update Status modal: lists only templates that can actually be sent,
  * lets the user send at the follow-up time or a time of their own,
- * previews the chosen one (email HTML inside a sandboxed iframe), says
+ * previews the chosen one filled with this lead's details (email HTML
+ * inside a sandboxed iframe), says
  * when it will go, and — when this person already has an auto-message
  * scheduled — asks Replace or Keep before Save.
  */
@@ -76,7 +77,7 @@ const SEND_WHEN_OPTIONS: MobileSelectOption[] = [
           (valueChange)="onPick($event)"
         />
 
-        @if (selected(); as t) {
+        @if (selected()) {
           <div class="mt-2 grid gap-2 sm:grid-cols-2">
             <div>
               <span class="text-[11px] font-medium text-muted">When to send</span>
@@ -102,27 +103,35 @@ const SEND_WHEN_OPTIONS: MobileSelectOption[] = [
             }
           </div>
 
-          <div class="mt-2 overflow-hidden rounded-md border border-subtle bg-surface">
-            @if (channel() === 'email' && t.body_html) {
-              @if (t.subject) {
+          <p class="mt-2 text-[11px] font-medium text-muted">{{ previewCaption() }}</p>
+          <div class="mt-1 overflow-hidden rounded-md border border-subtle bg-surface">
+            @if (previewLoading()) {
+              <p class="px-3 py-2 text-xs text-faint">Loading preview…</p>
+            } @else {
+              @if (shownSubject(); as subject) {
                 <p class="border-b border-subtle px-3 py-1.5 text-xs text-default">
-                  <span class="text-faint">Subject:</span> {{ t.subject }}
+                  <span class="text-faint">Subject:</span> {{ subject }}
                 </p>
               }
-              <iframe
-                class="block h-40 w-full bg-white"
-                sandbox=""
-                title="Email template preview"
-                [srcdoc]="t.body_html"
-              ></iframe>
-            } @else {
-              <p
-                class="max-h-40 overflow-y-auto whitespace-pre-wrap px-3 py-2 text-xs text-default"
-              >
-                {{ t.body_text }}
-              </p>
+              @if (shownHtml(); as html) {
+                <iframe
+                  class="block h-40 w-full bg-white"
+                  sandbox=""
+                  title="Email preview"
+                  [srcdoc]="html"
+                ></iframe>
+              } @else {
+                <p
+                  class="max-h-40 overflow-y-auto whitespace-pre-wrap px-3 py-2 text-xs text-default"
+                >
+                  {{ shownText() }}
+                </p>
+              }
             }
           </div>
+          @if (filled()?.problem; as problem) {
+            <p class="mt-1.5 text-xs text-amber-600 dark:text-amber-400">{{ problem }}</p>
+          }
           @if (sendAtLabel(); as when) {
             <p class="mt-1.5 flex items-start gap-1 text-xs text-muted">
               <lucide-icon name="clock" class="mt-0.5 h-3 w-3 shrink-0" />
@@ -199,6 +208,8 @@ export class FollowUpAutoSendPickerComponent {
   protected readonly sendWhenOptions = SEND_WHEN_OPTIONS;
   protected readonly loading = signal(false);
   protected readonly pending = signal<AutoSendSummary | null>(null);
+  /** Filled previews by template id; `error` falls back to the raw template. */
+  private readonly previews = signal<Record<string, AutoSendPreview | 'error'>>({});
   private readonly templatesByChannel = signal<Partial<Record<AutoSendChannel, TemplateRead[]>>>(
     {},
   );
@@ -219,6 +230,35 @@ export class FollowUpAutoSendPickerComponent {
 
   protected readonly selected = computed<TemplateRead | null>(
     () => this.templates().find((t) => t.id === this.templateId()) ?? null,
+  );
+
+  /** The chosen template filled with this lead's details, once loaded. */
+  protected readonly filled = computed<AutoSendPreview | null>(() => {
+    const p = this.previews()[this.templateId()];
+    return p && p !== 'error' ? p : null;
+  });
+  protected readonly previewLoading = computed(
+    () => !!this.templateId() && this.previews()[this.templateId()] === undefined,
+  );
+  protected readonly previewCaption = computed(() => {
+    if (this.previews()[this.templateId()] === 'error') {
+      return "Preview — couldn't fill in this lead's details, showing the template as written";
+    }
+    const name = this.contact()?.full_name;
+    return name ? `Preview — what ${name} will receive` : 'Preview';
+  });
+  protected readonly shownSubject = computed<string | null>(() =>
+    this.channel() === 'email'
+      ? (this.filled()?.subject ?? this.selected()?.subject ?? null)
+      : null,
+  );
+  protected readonly shownHtml = computed<string | null>(() => {
+    const p = this.filled();
+    if (p) return p.body_html;
+    return this.channel() === 'email' ? (this.selected()?.body_html ?? null) : null;
+  });
+  protected readonly shownText = computed(
+    () => this.filled()?.body_text ?? this.selected()?.body_text ?? '',
   );
 
   /** Why nothing can be auto-sent to this contact on this channel. */
@@ -280,6 +320,7 @@ export class FollowUpAutoSendPickerComponent {
     this.templateId.set(id);
     this.replaceChosen.set(false);
     this.emit();
+    if (id && this.previews()[id] === undefined) this.loadPreview(id);
   }
 
   protected onSendWhen(value: string): void {
@@ -341,6 +382,16 @@ export class FollowUpAutoSendPickerComponent {
       sendAt,
       needsInput: (hasPending && !this.replaceChosen()) || (custom && sendAt === null),
     });
+  }
+
+  private loadPreview(templateId: string): void {
+    this.leadsApi
+      .previewAutoSend(this.leadId(), templateId)
+      .pipe(
+        catchError(() => of('error' as const)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((preview) => this.previews.update((all) => ({ ...all, [templateId]: preview })));
   }
 
   private loadTemplates(channel: AutoSendChannel): void {

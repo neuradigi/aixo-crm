@@ -50,7 +50,7 @@ from src.app.core.contacts import service as _contacts_service
 from src.app.core.contacts.models import Contact
 from src.app.core.leads import data_access as _da
 from src.app.core.leads import filter_dsl, scoring
-from src.app.core.leads.auto_send.schemas import AutoSendSummary
+from src.app.core.leads.auto_send.schemas import AutoSendPreview, AutoSendSummary
 from src.app.core.leads.csv_export import resolve_custom_columns
 from src.app.core.leads.models import (
     Lead,
@@ -2170,6 +2170,24 @@ async def get_pending_auto_send_for_lead(
     )
 
 
+async def preview_auto_send_for_caller(
+    session: AsyncSession, *, lead_id: uuid.UUID, template_id: uuid.UUID, caller: Any
+) -> AutoSendPreview:
+    """The template filled with this lead's details — the Update Status
+    picker's preview. The sender is who the follow-up would go to: the
+    lead's owner, else the caller."""
+    from src.app.core.leads.auto_send import service as _auto_send_service
+
+    lead = await _load_visible_lead(session, lead_id=lead_id, caller=caller)
+    return await _auto_send_service.preview_auto_send(
+        session,
+        org_id=caller.org_id,
+        lead=lead,
+        template_id=template_id,
+        sender_user_id=lead.assigned_to_id or caller.legacy_uuid,
+    )
+
+
 __all__ = [
     "bulk_delete_leads",
     "bulk_move_stage",
@@ -2185,6 +2203,7 @@ __all__ = [
     "list_scoring_rules",
     "cancel_auto_send_for_caller",
     "get_pending_auto_send_for_lead",
+    "preview_auto_send_for_caller",
     "log_update_for_lead",
     "move_stage_for_lead",
     "pipeline_value_rollup",

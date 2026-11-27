@@ -194,6 +194,17 @@ export interface AutoSendSummary {
   delivery?: 'delivered' | 'read' | null;
 }
 
+/** A template filled with one lead's details, as the auto-send would
+ *  send it. `body_html` is an email's designed HTML (null for WhatsApp
+ *  and text-only email); `problem` says why the send would fail. */
+export interface AutoSendPreview {
+  channel: 'whatsapp' | 'email';
+  subject: string | null;
+  body_text: string;
+  body_html: string | null;
+  problem: string | null;
+}
+
 /** Payload for ``POST /leads/{id}/log-update``. Mirrors the backend
  * ``LogUpdateRequest`` shape one-for-one. ``if_current_stage`` is the
  * optimistic-lock guard captured when the modal opened. */
@@ -428,6 +439,13 @@ export class LeadsApiService extends BaseCrudApiService<Lead, LeadCreate, LeadUp
    *  leads), or null. */
   getPendingAutoSend(leadId: string): Observable<AutoSendSummary | null> {
     return this.http.get<AutoSendSummary | null>(`${this.base}/${leadId}/auto-send`);
+  }
+
+  /** `templateId` filled with this lead's details. Sends nothing. */
+  previewAutoSend(leadId: string, templateId: string): Observable<AutoSendPreview> {
+    return this.http.get<AutoSendPreview>(`${this.base}/${leadId}/auto-send/preview`, {
+      params: { template_id: templateId },
+    });
   }
 
   /** Cancel a scheduled auto-message; returns it in its new state. */

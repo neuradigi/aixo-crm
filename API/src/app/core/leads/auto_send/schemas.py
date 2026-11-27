@@ -27,3 +27,15 @@ class AutoSendSummary(BaseModel):
     created_by_id: uuid.UUID
     # For a sent message: how far it got, from the provider's receipts.
     delivery: Literal["delivered", "read"] | None = None
+
+
+class AutoSendPreview(BaseModel):
+    """A template filled with one lead's details, as the auto-send would
+    send it. ``body_html`` is an email's designed HTML (None for WhatsApp
+    and text-only email); ``problem`` says why the send would fail."""
+
+    channel: FollowUpAutoSendChannel
+    subject: str | None
+    body_text: str
+    body_html: str | None
+    problem: str | None

@@ -6,15 +6,17 @@ import { FollowUpAutoSendPickerComponent } from './follow-up-auto-send-picker.co
 import { AutoSendSummary, LeadsApiService } from './leads-api.service';
 
 /**
- * follow-up-auto-send Steps 8 + 10 — the Update Status auto-send picker:
+ * follow-up-auto-send Steps 8, 10, 11 — the Update Status auto-send picker:
  * only usable templates are requested, an opted-out / address-less contact
  * blocks the picker, an existing scheduled message makes the choice wait
- * for Replace / Keep, and an own send time travels with the choice.
+ * for Replace / Keep, an own send time travels with the choice, and the
+ * preview shows the template filled with the lead's details.
  */
 describe('FollowUpAutoSendPickerComponent', () => {
   let fixture: ComponentFixture<FollowUpAutoSendPickerComponent>;
   let listCalls: unknown[];
   let pending: AutoSendSummary | null;
+  let previewCalls: [string, string][];
 
   const template = {
     id: 't1',
@@ -26,6 +28,7 @@ describe('FollowUpAutoSendPickerComponent', () => {
 
   function setup(contact: Record<string, unknown>, channel: 'whatsapp' | 'email' = 'whatsapp') {
     listCalls = [];
+    previewCalls = [];
     TestBed.configureTestingModule({
       imports: [FollowUpAutoSendPickerComponent],
       providers: [
@@ -38,7 +41,22 @@ describe('FollowUpAutoSendPickerComponent', () => {
             },
           },
         },
-        { provide: LeadsApiService, useValue: { getPendingAutoSend: () => of(pending) } },
+        {
+          provide: LeadsApiService,
+          useValue: {
+            getPendingAutoSend: () => of(pending),
+            previewAutoSend: (leadId: string, templateId: string) => {
+              previewCalls.push([leadId, templateId]);
+              return of({
+                channel: 'whatsapp',
+                subject: null,
+                body_text: 'Hi Asha',
+                body_html: null,
+                problem: null,
+              });
+            },
+          },
+        },
       ],
     });
     fixture = TestBed.createComponent(FollowUpAutoSendPickerComponent);
@@ -101,6 +119,15 @@ describe('FollowUpAutoSendPickerComponent', () => {
       sendAt: new Date('2030-01-01T09:00').toISOString(),
       needsInput: false,
     });
+  });
+
+  it("previews the template filled with this lead's details", () => {
+    setup({ phone: '+919000000001', whatsapp_opt_in_status: 'implicit', full_name: 'Asha' });
+    pick('t1');
+    expect(previewCalls).toEqual([['lead-1', 't1']]);
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Hi Asha');
+    expect(text).not.toContain('{{contact.first_name}}');
   });
 
   it('blocks the picker for an opted-out contact', () => {
