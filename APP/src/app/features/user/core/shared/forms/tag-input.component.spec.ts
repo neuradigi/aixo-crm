@@ -1,11 +1,14 @@
+import { CdkConnectedOverlay } from '@angular/cdk/overlay';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 
 import { TagInputComponent } from './tag-input.component';
 
 /**
  * contact-tags-for-campaigns Step 3 — `crm-tag-input` behaviour:
  * case-snapping to an existing spelling, committing typed text on blur,
- * the count / length limits, and markup rendered as plain text.
+ * the count / length limits, markup rendered as plain text, and the open
+ * panel following the box when a container scrolls.
  */
 describe('TagInputComponent', () => {
   let fixture: ComponentFixture<TagInputComponent>;
@@ -83,6 +86,20 @@ describe('TagInputComponent', () => {
     fixture.detectChanges();
     press('Backspace');
     expect(chips()).toEqual(['a']);
+  });
+
+  it('keeps the open panel under the box when a container scrolls', () => {
+    input().dispatchEvent(new Event('focus'));
+    fixture.detectChanges();
+    const overlay = fixture.debugElement
+      .queryAllNodes(By.directive(CdkConnectedOverlay))[0]
+      .injector.get(CdkConnectedOverlay);
+    const update = spyOn(overlay.overlayRef, 'updatePosition');
+    const scroller = document.createElement('div');
+    document.body.appendChild(scroller);
+    scroller.dispatchEvent(new Event('scroll'));
+    scroller.remove();
+    expect(update).toHaveBeenCalled();
   });
 
   it('renders markup in a tag as text', () => {

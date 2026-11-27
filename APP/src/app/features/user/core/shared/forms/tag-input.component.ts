@@ -1,9 +1,13 @@
+import { DOCUMENT } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   ElementRef,
+  NgZone,
   computed,
   forwardRef,
+  inject,
   input,
   output,
   signal,
@@ -41,7 +45,8 @@ let nextId = 0;
  * parents that persist each change immediately.
  *
  * The suggestion panel renders in the CDK overlay container, so it is
- * never clipped by a scrolling modal body.
+ * never clipped by a scrolling modal body, and it follows the box when
+ * any container scrolls.
  *
  * `appearance="inline"` is for record headers / side panels: chips and a
  * faint "+ Add tag" with no box until hovered or focused.
@@ -204,6 +209,7 @@ export class TagInputComponent implements ControlValueAccessor {
 
   private readonly origin = viewChild.required<CdkOverlayOrigin>('origin');
   private readonly textInput = viewChild.required<ElementRef<HTMLInputElement>>('textInput');
+  private readonly overlay = viewChild(CdkConnectedOverlay);
 
   protected readonly visibleSuggestions = computed<TagSuggestion[]>(() => {
     const chosen = new Set(this.tags().map((t) => t.toLowerCase()));
@@ -235,6 +241,23 @@ export class TagInputComponent implements ControlValueAccessor {
 
   private onChangeFn: (value: string[]) => void = () => undefined;
   private onTouchedFn: () => void = () => undefined;
+
+  constructor() {
+    // Pages scroll inside containers the CDK doesn't watch (the app
+    // shell's main area, modal bodies), which left the open panel behind
+    // while the box moved. Follow every scroll — capture phase, because
+    // scroll events don't bubble.
+    const doc = inject(DOCUMENT);
+    const follow = (): void => {
+      if (this.panelOpen()) this.overlay()?.overlayRef?.updatePosition();
+    };
+    inject(NgZone).runOutsideAngular(() =>
+      doc.addEventListener('scroll', follow, { capture: true, passive: true }),
+    );
+    inject(DestroyRef).onDestroy(() =>
+      doc.removeEventListener('scroll', follow, { capture: true }),
+    );
+  }
 
   // --- ControlValueAccessor ------------------------------------------
   writeValue(value: string[] | null | undefined): void {
