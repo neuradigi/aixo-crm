@@ -21,10 +21,12 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,7 +35,12 @@ from src.app.core.activities import service as activities_service
 from src.app.core.activities.models import ActivityType
 from src.app.core.contacts import consent_service, data_access
 from src.app.core.contacts.models import Contact
-from src.app.core.contacts.schemas import ContactCreate, ContactUpdate
+from src.app.core.contacts.schemas import (
+    CONTACT_TAG_COUNT_MAX,
+    ContactCreate,
+    ContactTagDelta,
+    ContactUpdate,
+)
 from src.app.shared.audit import log_entity_change, snapshot
 from src.app.shared.custom_fields import validate_custom_data
 from src.app.shared.db.pagination import paginate
@@ -657,27 +664,35 @@ async def update_contact(
     return contact
 
 
+async def _org_event_payload(session: AsyncSession, org_id: uuid.UUID) -> dict[str, Any] | None:
+    """The ``org`` block contact events carry, or None if the org is gone."""
+    from src.app.core.tenants import service as tenants_service
+
+    org = await tenants_service.get_organization_by_id(session, org_id)
+    if org is None:
+        return None
+    return {"id": str(org.id), "name": org.name, "slug": org.slug}
+
+
 async def _publish_contact_updated(
     *,
     session: AsyncSession,
     org_id: uuid.UUID,
     contact: Contact,
     changed_fields: list[str],
+    org_payload: dict[str, Any] | None = None,
 ) -> None:
     """Fire-and-forget ``contact.updated`` publisher. Same shape as
     ``_publish_contact_created`` — subscribers get the current snapshot
     plus a ``changed_fields`` list so a workflow condition can gate on
     "only fire when phone changed" without pulling the before/after
-    itself."""
+    itself. Pass ``org_payload`` when publishing for many contacts so
+    the org is looked up once."""
     try:
-        from sqlalchemy import select as _select
-
         from src.app.core.events.bus import publish as events_publish
-        from src.app.core.tenants.models import Organization
 
-        org = (
-            await session.execute(_select(Organization).where(Organization.id == org_id))
-        ).scalar_one_or_none()
+        if org_payload is None:
+            org_payload = await _org_event_payload(session, org_id)
 
         payload: dict[str, Any] = {
             "contact_id": str(contact.id),
@@ -692,12 +707,8 @@ async def _publish_contact_updated(
                 "custom_data": contact.custom_data or {},
             },
         }
-        if org is not None:
-            payload["org"] = {
-                "id": str(org.id),
-                "name": org.name,
-                "slug": org.slug,
-            }
+        if org_payload is not None:
+            payload["org"] = org_payload
 
         updated_iso = contact.updated_at.isoformat() if contact.updated_at else ""
         await events_publish(
@@ -723,20 +734,17 @@ async def _publish_contact_tag_event(
     contact: Contact,
     event_type: str,
     tag: str,
+    org_payload: dict[str, Any] | None = None,
 ) -> None:
     """Fire-and-forget publisher for ``contact.tag_added`` /
     ``contact.tag_removed``. One event per tag mutation so workflow
     conditions can compare on ``tag`` directly (``{{event.tag}}``)
     rather than diffing arrays."""
     try:
-        from sqlalchemy import select as _select
-
         from src.app.core.events.bus import publish as events_publish
-        from src.app.core.tenants.models import Organization
 
-        org = (
-            await session.execute(_select(Organization).where(Organization.id == org_id))
-        ).scalar_one_or_none()
+        if org_payload is None:
+            org_payload = await _org_event_payload(session, org_id)
 
         payload: dict[str, Any] = {
             "contact_id": str(contact.id),
@@ -749,12 +757,8 @@ async def _publish_contact_tag_event(
                 "phone": contact.phone,
             },
         }
-        if org is not None:
-            payload["org"] = {
-                "id": str(org.id),
-                "name": org.name,
-                "slug": org.slug,
-            }
+        if org_payload is not None:
+            payload["org"] = org_payload
 
         # event_id keys on the mutation direction + tag so consecutive
         # add/remove/add flips on the same tag don't collapse via dedup.
@@ -1405,25 +1409,18 @@ async def bulk_add_tag_contacts(
     tag: str,
     org_id: uuid.UUID,
 ) -> int:
-    """Append `tag` to the `tags` array on every selected contact.
-
-    Uses Postgres `array_append` so the same tag isn't duplicated.
-    Trims whitespace; rejects empty after trim (the request schema
-    already enforces non-empty + length cap).
-    """
-    clean = tag.strip()
-    if not clean:
-        # Schema already enforces min_length=1; raise here so a direct
-        # caller sees a clean 422 instead of silent "updated 0 rows".
+    """Add one tag to the selected contacts; returns how many changed.
+    Kept for the contacts list's "Add tag" action until it moves to
+    ``POST /contacts/bulk-tags`` (contact-tags-for-campaigns Step 5)."""
+    try:
+        delta = ContactTagDelta(add=[tag])
+    except ValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="tag must not be blank",
-        )
-    # `tags = CASE WHEN clean = ANY(tags) THEN tags ELSE array_append(tags, clean) END`
-    # via SQLAlchemy text expression — keeps the per-row decision in PG.
-    rowcount = await data_access.bulk_append_tag(session, ids=ids, tag=clean, org_id=org_id)
-    await session.commit()
-    return rowcount
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=exc.errors(include_url=False, include_context=False),
+        ) from exc
+    staged = await bulk_tag_delta_contacts(session, org_id=org_id, ids=ids, delta=delta)
+    return sum(1 for d in staged.diffs if d.added)
 
 
 # --- Duplicate check + CSV export -------------------------------------------
@@ -1452,12 +1449,224 @@ def _normalise_phone_suffix(raw: str) -> str | None:
 CONTACT_TAG_OPTIONS_LIMIT = 500
 
 
-async def list_contact_tags(session: AsyncSession, *, org_id: uuid.UUID) -> list[str]:
-    """Tag vocabulary for the list page's Tags column filter. Org-wide,
-    so the options don't depend on which page of contacts is showing."""
-    return await data_access.list_distinct_contact_tags(
-        session, org_id=org_id, limit=CONTACT_TAG_OPTIONS_LIMIT
+async def list_contact_tags(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    q: str | None = None,
+    limit: int = CONTACT_TAG_OPTIONS_LIMIT,
+) -> list[tuple[str, int]]:
+    """Tag vocabulary with per-tag contact counts, for tag pickers and
+    the list page's Tags column filter. Org-wide, so the options don't
+    depend on which page of contacts is showing; ``q`` searches
+    server-side so a tag past ``limit`` can still be found."""
+    return await data_access.list_distinct_contact_tags(session, org_id=org_id, q=q, limit=limit)
+
+
+@dataclass(frozen=True)
+class TagDiff:
+    """One contact's tag change, computed from its row-locked snapshot.
+    ``after`` is exactly what was written."""
+
+    contact_id: uuid.UUID
+    before: list[str]
+    after: list[str]
+    added: list[str]
+    removed: list[str]
+
+
+@dataclass(frozen=True)
+class StagedTagDelta:
+    diffs: list[TagDiff]
+    # Contacts left unchanged because the add would exceed the cap
+    # (only populated when staged with ``strict=False``).
+    skipped_over_limit: list[uuid.UUID]
+
+
+async def stage_tag_delta(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    contact_ids: list[uuid.UUID],
+    add: list[str],
+    remove: list[str],
+    strict: bool = True,
+) -> StagedTagDelta:
+    """Apply an add / remove tag delta to the org's contacts inside the
+    caller's transaction. Flushes, never commits — callers commit, then
+    hand the diffs to :func:`publish_tag_delta`.
+
+    Rows are locked first, so the diff (and therefore which events
+    fire) and the tag cap are exact under concurrent writers. The cap
+    applies to the resulting list and only when the delta adds a tag:
+    a contact already over the cap (e.g. after a merge) can always shed
+    tags.
+
+    ``strict=True`` (one contact): 404 for an id outside the org, 409 for
+    an anonymised contact, 422 ``tag_limit`` when an add would exceed
+    the cap — nothing is changed when it raises. ``strict=False``
+    (bulk): those contacts are skipped and the rest are changed.
+    """
+    unique_ids = list(dict.fromkeys(contact_ids))
+    contacts = await data_access.lock_contacts_for_tag_change(
+        session, org_id=org_id, contact_ids=unique_ids
     )
+    if strict and len(contacts) != len(unique_ids):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="contact not found")
+
+    remove_set = set(remove)
+    diffs: list[TagDiff] = []
+    skipped_over_limit: list[uuid.UUID] = []
+    for contact in contacts:
+        if contact.anonymised_at is not None:
+            if not strict:
+                continue
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "contact_anonymised",
+                    "contact_id": str(contact.id),
+                    "message": "This contact was anonymised, so its tags can't be changed.",
+                },
+            )
+        before = list(contact.tags or [])
+        kept = [t for t in before if t not in remove_set]
+        added = [t for t in dict.fromkeys(add) if t not in kept]
+        after = kept + added
+        if added and len(after) > CONTACT_TAG_COUNT_MAX:
+            if not strict:
+                skipped_over_limit.append(contact.id)
+                continue
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "error": "tag_limit",
+                    "contact_id": str(contact.id),
+                    "current_count": len(before),
+                    "max": CONTACT_TAG_COUNT_MAX,
+                    "message": f"A contact can have at most {CONTACT_TAG_COUNT_MAX} tags.",
+                },
+            )
+        removed = list(dict.fromkeys(t for t in before if t in remove_set))
+        diffs.append(
+            TagDiff(contact_id=contact.id, before=before, after=after, added=added, removed=removed)
+        )
+
+    # Mutate only once every contact passed the checks above.
+    by_id = {c.id: c for c in contacts}
+    for diff in diffs:
+        if diff.added or diff.removed:
+            by_id[diff.contact_id].tags = diff.after
+    await session.flush()
+    return StagedTagDelta(diffs=diffs, skipped_over_limit=skipped_over_limit)
+
+
+async def publish_tag_delta(
+    session: AsyncSession,
+    *,
+    org_id: uuid.UUID,
+    diffs: list[TagDiff],
+    bulk_audit: dict[str, Any] | None = None,
+) -> None:
+    """After the caller's commit: audit, then publish ``contact.updated``
+    plus one ``contact.tag_added`` / ``contact.tag_removed`` per real
+    change, for every contact whose tags changed.
+
+    Audit is one ``contacts.updated`` row per contact, or — when
+    ``bulk_audit`` (a summary dict) is given — a single
+    ``contacts.bulk_tags_updated`` row for the whole batch.
+    """
+    changed = [d for d in diffs if d.added or d.removed]
+    if not changed:
+        return
+    if bulk_audit is not None:
+        await log_entity_change(
+            action="contacts.bulk_tags_updated",
+            entity_type="contact",
+            after={**bulk_audit, "updated": len(changed)},
+        )
+    else:
+        for diff in changed:
+            await log_entity_change(
+                action="contacts.updated",
+                entity_type="contact",
+                entity_id=diff.contact_id,
+                before={"tags": diff.before},
+                after={"tags": diff.after},
+            )
+
+    # Re-read once so `updated_at` (part of each event id) is current.
+    contacts = {
+        c.id: c
+        for c in await data_access.reload_contacts(
+            session, contact_ids=[d.contact_id for d in changed]
+        )
+    }
+    org_payload = await _org_event_payload(session, org_id)
+    for diff in changed:
+        contact = contacts[diff.contact_id]
+        await _publish_contact_updated(
+            session=session,
+            org_id=org_id,
+            contact=contact,
+            changed_fields=["tags"],
+            org_payload=org_payload,
+        )
+        for event_type, tags in (
+            ("contact.tag_added", diff.added),
+            ("contact.tag_removed", diff.removed),
+        ):
+            for tag in tags:
+                await _publish_contact_tag_event(
+                    session=session,
+                    org_id=org_id,
+                    contact=contact,
+                    event_type=event_type,
+                    tag=tag,
+                    org_payload=org_payload,
+                )
+
+
+async def apply_contact_tag_delta(
+    session: AsyncSession, *, org_id: uuid.UUID, contact_id: uuid.UUID, delta: ContactTagDelta
+) -> TagDiff:
+    """Add / remove tags on one contact. The returned diff's ``after`` is
+    the contact's resulting list, including anyone else's earlier edits."""
+    staged = await stage_tag_delta(
+        session, org_id=org_id, contact_ids=[contact_id], add=delta.add, remove=delta.remove
+    )
+    await session.commit()
+    await publish_tag_delta(session, org_id=org_id, diffs=staged.diffs)
+    return staged.diffs[0]
+
+
+async def bulk_tag_delta_contacts(
+    session: AsyncSession, *, org_id: uuid.UUID, ids: list[uuid.UUID], delta: ContactTagDelta
+) -> StagedTagDelta:
+    """Add / remove tags on up to 200 contacts in one transaction. Ids
+    outside the org and anonymised contacts are skipped; contacts an add
+    would push past the cap are left unchanged and reported."""
+    staged = await stage_tag_delta(
+        session,
+        org_id=org_id,
+        contact_ids=ids,
+        add=delta.add,
+        remove=delta.remove,
+        strict=False,
+    )
+    await session.commit()
+    await publish_tag_delta(
+        session,
+        org_id=org_id,
+        diffs=staged.diffs,
+        bulk_audit={
+            "contact_ids": [str(d.contact_id) for d in staged.diffs if d.added or d.removed],
+            "add": delta.add,
+            "remove": delta.remove,
+            "skipped_over_limit": len(staged.skipped_over_limit),
+        },
+    )
+    return staged
 
 
 async def check_duplicate(

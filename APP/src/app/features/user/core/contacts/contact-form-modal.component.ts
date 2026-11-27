@@ -23,6 +23,8 @@ import { FormToastHelper } from '../shared/forms/form-toast.helper';
 import { DynamicFormComponent } from '../shared/dynamic-form/dynamic-form.component';
 import { FieldDef, FormValue } from '../shared/dynamic-form/types';
 import { MobileSelectComponent } from '../shared/forms/mobile-select.component';
+import { TagInputComponent } from '../shared/forms/tag-input.component';
+import { injectContactTagSuggestions } from './contact-tag-suggestions';
 import { UsersDirectoryService } from '../shared/services/users-directory.service';
 import type { StandardFieldRendered } from '../standard-fields/types';
 import { commonValidators, withRequiredIf } from '../shared/validators';
@@ -55,6 +57,7 @@ import {
     LucideAngularModule,
     RouterLink,
     MobileSelectComponent,
+    TagInputComponent,
   ],
   templateUrl: './contact-form-modal.component.html',
 })
@@ -67,6 +70,7 @@ export class ContactFormModalComponent extends BaseFormModalComponent {
   private readonly usersDir = inject(UsersDirectoryService);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly formToast = inject(FormToastHelper);
+  protected readonly tagVocabulary = injectContactTagSuggestions();
 
   /** Custom-field dirty tracking. The dynamic form emits its value on
    *  render, so the first emission is the baseline; any later different
@@ -118,7 +122,7 @@ export class ContactFormModalComponent extends BaseFormModalComponent {
     phone: ['+', [commonValidators.phone(), commonValidators.maxLength(32)]],
     email: ['', [commonValidators.email, commonValidators.maxLength(254)]],
     source: ['', [commonValidators.maxLength(64)]],
-    tags_csv: ['', [commonValidators.maxLength(1000)]],
+    tags: [[] as string[]],
     assigned_to_id: [''],
   });
 
@@ -180,12 +184,8 @@ export class ContactFormModalComponent extends BaseFormModalComponent {
     );
     this.standard.controls.source.updateValueAndValidity({ emitEvent: false });
 
-    this.standard.controls.tags_csv.setValidators(
-      withRequiredIf([commonValidators.maxLength(1000)], map['tags']),
-    );
-    this.standard.controls.tags_csv.updateValueAndValidity({
-      emitEvent: false,
-    });
+    this.standard.controls.tags.setValidators(withRequiredIf([], map['tags']));
+    this.standard.controls.tags.updateValueAndValidity({ emitEvent: false });
   }
 
   override ngOnInit(): void {
@@ -281,7 +281,7 @@ export class ContactFormModalComponent extends BaseFormModalComponent {
         phone: 'Phone',
         email: 'Email',
         source: 'Source',
-        tags_csv: 'Tags',
+        tags: 'Tags',
       };
       this.formToast.invalidFields(
         Object.entries(this.standard.controls)
@@ -308,13 +308,17 @@ export class ContactFormModalComponent extends BaseFormModalComponent {
       phone,
       email: nullableTrim(raw.email),
       source: nullableTrim(raw.source),
-      tags: this.parseTags(raw.tags_csv),
+      tags: raw.tags ?? [],
       assigned_to_id: nullableTrim(raw.assigned_to_id),
       custom_data: this.customValue() as Record<string, unknown>,
     };
 
     if (this.isEdit()) {
-      this.save.emit({ update: payload });
+      // Leave tags out unless the user changed them: sending the full
+      // list would overwrite tags someone else added meanwhile (e.g. from
+      // the lead page) and fire false `contact.tag_removed` events.
+      const { tags, ...rest } = payload;
+      this.save.emit({ update: this.tagsChanged(tags ?? []) ? payload : rest });
     } else {
       this.save.emit({ create: payload });
     }
@@ -332,19 +336,14 @@ export class ContactFormModalComponent extends BaseFormModalComponent {
       phone: storedPhone === '' ? '+' : storedPhone,
       email: contact.email ?? '',
       source: contact.source ?? '',
-      tags_csv: contact.tags.join(', '),
+      tags: [...contact.tags],
       assigned_to_id: contact.assigned_to_id ?? '',
     });
     this.customValue.set(contact.custom_data as FormValue);
   }
 
-  private parseTags(csv: string | null | undefined): string[] {
-    if (!csv) return [];
-    const seen = new Set<string>();
-    for (const part of csv.split(',')) {
-      const value = part.trim();
-      if (value.length > 0 && !seen.has(value)) seen.add(value);
-    }
-    return [...seen];
+  private tagsChanged(tags: string[]): boolean {
+    const original = this._contact()?.tags ?? [];
+    return tags.length !== original.length || tags.some((t) => !original.includes(t));
   }
 }

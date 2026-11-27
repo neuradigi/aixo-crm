@@ -32,6 +32,7 @@ import {
 import { UsersDirectoryService } from '../shared/services/users-directory.service';
 import { Contact, ContactCreate, ContactUpdate, ContactsApiService } from './contacts-api.service';
 import { ContactFormModalComponent } from './contact-form-modal.component';
+import { ContactTagsEditorComponent } from './contact-tags-editor.component';
 import { LogEventButtonComponent } from './log-event-button.component';
 import { MergeContactModalComponent } from './merge-contact-modal.component';
 import { OptInChipComponent } from './opt-in/opt-in-chip.component';
@@ -74,6 +75,7 @@ const TABS: ReadonlyArray<{ id: DetailTab; label: string }> = [
     MailLinkDirective,
     OptInSectionComponent,
     OptInChipComponent,
+    ContactTagsEditorComponent,
   ],
   templateUrl: './contact-detail.page.html',
 })
@@ -109,6 +111,11 @@ export class ContactDetailPageComponent implements OnInit {
   /** True when the loaded contact has already been anonymised — used
    *  to hide the Anonymise button + show the "Anonymised" chip. */
   readonly isAnonymised = computed(() => this.contact()?.anonymised_at != null);
+
+  /** Anonymised contacts can't be re-tagged (the server answers 409). */
+  readonly canEditTags = computed(
+    () => this.auth.hasPermission('contacts.write') && !this.isAnonymised(),
+  );
 
   /** Tied to `*ngIf` on the pencil-icon — junior staff shouldn't see it. */
   readonly canReassign = computed(() => this.auth.hasPermission('contacts.reassign'));
@@ -180,6 +187,12 @@ export class ContactDetailPageComponent implements OnInit {
     this.editingContact.set(null);
     this.formError.set(null);
     this.submitting.set(false);
+  }
+
+  /** Keep the page's contact (header + Details card) in step with the
+   *  inline tag editor's saved result. */
+  protected onTagsChanged(tags: string[]): void {
+    this.contact.update((c) => (c ? { ...c, tags } : c));
   }
 
   protected onSave(event: { create?: ContactCreate; update?: ContactUpdate }): void {

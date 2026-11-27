@@ -8,6 +8,8 @@ is automatic via the ORM filter on `TenantScoped`.
   POST   /contacts              → create
   GET    /contacts/{id}         → get one
   PATCH  /contacts/{id}         → partial update
+  POST   /contacts/{id}/tags    → add / remove tags (delta)
+  POST   /contacts/bulk-tags    → add / remove tags on many contacts
   DELETE /contacts/{id}         → delete
 
 The dynamic ``custom.<key>=<value>`` filter is parsed off
@@ -45,6 +47,8 @@ from src.app.core.contacts.schemas import (
     ContactBulkDeleteResult,
     ContactBulkReassign,
     ContactBulkReassignResult,
+    ContactBulkTagDelta,
+    ContactBulkTagDeltaResult,
     ContactCreate,
     ContactDuplicateCheckResponse,
     ContactDuplicateMatch,
@@ -55,17 +59,23 @@ from src.app.core.contacts.schemas import (
     ContactMergeResponse,
     ContactOut,
     ContactReassign,
+    ContactTagDelta,
+    ContactTagOption,
     ContactTagsResponse,
+    ContactTagsResult,
     ContactUpdate,
     OptInHistoryOut,
     OptInRecordRequest,
     OptOutRecordRequest,
 )
 from src.app.core.contacts.service import (
+    CONTACT_TAG_OPTIONS_LIMIT,
     anonymise_contact,
+    apply_contact_tag_delta,
     bulk_add_tag_contacts,
     bulk_delete_contacts,
     bulk_reassign_contacts,
+    bulk_tag_delta_contacts,
     check_duplicate,
     create_contact,
     delete_contact,
@@ -235,10 +245,15 @@ async def create_contact_endpoint(
 
 @router.get("/tags", response_model=ContactTagsResponse)
 async def list_contact_tags_endpoint(
+    q: str | None = Query(default=None, max_length=64, description="Tags containing this text."),
+    limit: int = Query(default=CONTACT_TAG_OPTIONS_LIMIT, ge=1, le=CONTACT_TAG_OPTIONS_LIMIT),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_permissions("contacts.read")),
+    # The campaign builder's tag picker needs the vocabulary too, and
+    # campaign authors may not hold `contacts.read`.
+    user: User = Depends(require_permissions("contacts.read", "campaigns.write", match="any")),
 ) -> ContactTagsResponse:
-    return ContactTagsResponse(tags=await list_contact_tags(db, org_id=user.org_id))
+    rows = await list_contact_tags(db, org_id=user.org_id, q=q, limit=limit)
+    return ContactTagsResponse(tags=[ContactTagOption(tag=tag, count=count) for tag, count in rows])
 
 
 @router.get("/check-duplicate", response_model=ContactDuplicateCheckResponse)
@@ -409,6 +424,21 @@ async def update_contact_endpoint(
     return ContactOut.model_validate(contact)
 
 
+@router.post("/{contact_id}/tags", response_model=ContactTagsResult)
+async def update_contact_tags_endpoint(
+    contact_id: uuid.UUID,
+    payload: ContactTagDelta,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permissions("contacts.write")),
+) -> ContactTagsResult:
+    """Add / remove tags without replacing the list. Returns the contact's
+    resulting tags so the caller also sees concurrent changes."""
+    diff = await apply_contact_tag_delta(
+        db, org_id=user.org_id, contact_id=contact_id, delta=payload
+    )
+    return ContactTagsResult(tags=diff.after)
+
+
 @router.delete("/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_contact_endpoint(
     contact_id: uuid.UUID,
@@ -526,6 +556,20 @@ async def hydrate_contacts_endpoint(
     list pages (walk-ins, appointments, etc.) into one round-trip."""
     rows = await hydrate_contacts_by_ids(db, ids=payload.ids, org_id=user.org_id)
     return [ContactListItem.model_validate(r) for r in rows]
+
+
+@router.post("/bulk-tags", response_model=ContactBulkTagDeltaResult)
+async def bulk_tags_endpoint(
+    payload: ContactBulkTagDelta,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_permissions("contacts.write")),
+) -> ContactBulkTagDeltaResult:
+    """Add / remove tags on the selected contacts in one go."""
+    staged = await bulk_tag_delta_contacts(db, org_id=user.org_id, ids=payload.ids, delta=payload)
+    return ContactBulkTagDeltaResult(
+        updated=sum(1 for d in staged.diffs if d.added or d.removed),
+        skipped_over_limit=len(staged.skipped_over_limit),
+    )
 
 
 @router.post("/bulk-add-tag", response_model=ContactBulkAddTagResult)

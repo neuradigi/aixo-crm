@@ -22,6 +22,7 @@ permission keys — every authenticated staff user can hit them.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -91,8 +92,12 @@ async def get_current_staff(db: AsyncSession = Depends(get_db)) -> User:
     return user
 
 
-def require_permissions(*required: str):
+def require_permissions(*required: str, match: Literal["all", "any"] = "all"):
     """Returns a dependency that 403s if the user lacks any of the required keys.
+
+    ``match="any"`` grants access when the user holds at least one of the
+    keys — for read endpoints shared by two surfaces (e.g. the contact tag
+    vocabulary, used by contacts screens and by the campaign builder).
 
     Emits an `auth.access_denied` audit row before raising 403 so an
     auditor can see who tried what. The row writes to the caller's org
@@ -115,6 +120,8 @@ def require_permissions(*required: str):
         # cannot re-add them via this path.
         granted |= await template_keys_for_role(db, user.role_id)
         missing = [k for k in required if k not in granted]
+        if match == "any" and len(missing) < len(required):
+            missing = []
         if missing:
             await audit.log(
                 "auth.access_denied",

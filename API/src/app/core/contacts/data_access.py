@@ -340,13 +340,45 @@ async def is_user_active_member_of_org(
 
 
 async def list_distinct_contact_tags(
-    session: AsyncSession, *, org_id: uuid.UUID, limit: int
-) -> list[str]:
-    """Every distinct tag used on the org's contacts, alphabetical."""
+    session: AsyncSession, *, org_id: uuid.UUID, q: str | None, limit: int
+) -> list[tuple[str, int]]:
+    """Distinct tags on the org's non-anonymised contacts with how many
+    contacts carry each, alphabetical. ``q`` narrows to tags containing
+    it (case-insensitive, wildcards escaped)."""
     tag = func.unnest(Contact.tags).label("tag")
-    inner = select(tag).where(Contact.org_id == org_id).subquery()
+    inner = (
+        select(Contact.id.label("contact_id"), tag)
+        .where(Contact.org_id == org_id, Contact.anonymised_at.is_(None))
+        .subquery()
+    )
+    stmt = select(inner.c.tag, func.count(func.distinct(inner.c.contact_id))).group_by(inner.c.tag)
+    if q:
+        stmt = stmt.where(inner.c.tag.icontains(q, autoescape=True))
+    result = await session.execute(stmt.order_by(inner.c.tag).limit(limit))
+    return [(row[0], row[1]) for row in result.all()]
+
+
+async def lock_contacts_for_tag_change(
+    session: AsyncSession, *, org_id: uuid.UUID, contact_ids: list[uuid.UUID]
+) -> list[Contact]:
+    """Load and row-lock the org's contacts among ``contact_ids`` so a
+    tag change computes its diff from a snapshot no concurrent writer
+    can move. ``populate_existing`` refreshes rows already in the
+    session's identity map."""
     result = await session.execute(
-        select(inner.c.tag).distinct().order_by(inner.c.tag).limit(limit)
+        select(Contact)
+        .where(Contact.org_id == org_id, Contact.id.in_(contact_ids))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return list(result.scalars().all())
+
+
+async def reload_contacts(session: AsyncSession, *, contact_ids: list[uuid.UUID]) -> list[Contact]:
+    """Re-read rows after a commit so server-set columns (``updated_at``)
+    are current, in one query."""
+    result = await session.execute(
+        select(Contact).where(Contact.id.in_(contact_ids)).execution_options(populate_existing=True)
     )
     return list(result.scalars().all())
 
@@ -441,37 +473,6 @@ async def count_delete_blockers_for_contacts(
         "appointments": int(row.appointments),
         "walk_ins": int(row.walk_ins),
     }
-
-
-async def bulk_append_tag(
-    session: AsyncSession,
-    *,
-    ids: list[uuid.UUID],
-    tag: str,
-    org_id: uuid.UUID,
-    max_tags: int = 32,
-) -> int:
-    """Append `tag` to each contact's `tags` array (if missing).
-
-    Postgres `array_append` keeps the operation atomic per row.
-    Rows whose current `tags` length is already at `max_tags` are
-    skipped — mirrors the create/update schema cap so this endpoint
-    can't quietly grow rows past the intended bound.
-    Returns rowcount.
-    """
-    if not ids:
-        return 0
-    result = await session.execute(
-        sa_update(Contact)
-        .where(Contact.id.in_(ids), Contact.org_id == org_id)
-        .where(~Contact.tags.contains([tag]))
-        .where(
-            func.array_length(Contact.tags, 1).is_(None)
-            | (func.array_length(Contact.tags, 1) < max_tags)
-        )
-        .values(tags=func.array_append(Contact.tags, tag))
-    )
-    return int(result.rowcount or 0)
 
 
 async def find_duplicate_candidates(
@@ -874,8 +875,8 @@ async def cascade_owner_to_related(
 
 
 __all__ = [
+    "build_contact_filters",
     "build_contact_list_query",
-    "bulk_append_tag",
     "cascade_owner_to_related",
     "count_contacts_filtered",
     "delete_contact_row",
@@ -889,5 +890,7 @@ __all__ = [
     "is_user_active_member_of_org",
     "list_contacts_by_ids_in_org",
     "list_contacts_for_export",
+    "lock_contacts_for_tag_change",
     "reassign_contact_references",
+    "reload_contacts",
 ]

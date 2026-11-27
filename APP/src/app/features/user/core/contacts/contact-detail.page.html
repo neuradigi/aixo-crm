@@ -111,16 +111,14 @@
                 <dd>{{ c.last_activity_at | relativeTime }}</dd>
               </div>
             </dl>
-            @if (c.tags.length > 0) {
-              <div class="mt-2 flex flex-wrap gap-1">
-                @for (tag of c.tags; track tag) {
-                  <span
-                    class="inline-flex items-center rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-default ring-1 border-subtle"
-                  >
-                    {{ tag }}
-                  </span>
-                }
-              </div>
+            @if (canEditTags() || c.tags.length > 0) {
+              <app-contact-tags-editor
+                class="mt-2 block max-w-xl"
+                [contactId]="c.id"
+                [tags]="c.tags"
+                [canEdit]="canEditTags()"
+                (tagsChange)="onTagsChanged($event)"
+              />
             }
           </div>
         </div>

@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from src.app.shared.schemas import (
     BulkAddTag,
@@ -30,7 +30,9 @@ from src.app.shared.schemas import (
 )
 
 _TAG_MAX = 64
-_TAG_COUNT_MAX = 32
+# Most tags one contact may carry; the service enforces it on the
+# resulting list of a delta, the schemas on a submitted list.
+CONTACT_TAG_COUNT_MAX = 32
 
 # Invisible direction / zero-width controls. They let two tags that look
 # identical compare unequal (and can reorder rendered text), so they are
@@ -66,7 +68,7 @@ class ContactCreate(BaseModel):
     phone: str | None = Field(default=None, max_length=32)
     email: EmailStr | None = None
     source: str | None = Field(default=None, max_length=64)
-    tags: list[TagName] = Field(default_factory=list, max_length=_TAG_COUNT_MAX)
+    tags: list[TagName] = Field(default_factory=list, max_length=CONTACT_TAG_COUNT_MAX)
     # `notes` used to live here as a single TEXT column on the contact;
     # retired in migration 0158 in favour of ``tbl_activities`` rows
     # (``type='note'``) which are versioned + authored + queryable.
@@ -93,7 +95,7 @@ class ContactUpdate(BaseModel):
     phone: str | None = Field(default=None, max_length=32)
     email: EmailStr | None = None
     source: str | None = Field(default=None, max_length=64)
-    tags: list[TagName] | None = Field(default=None, max_length=_TAG_COUNT_MAX)
+    tags: list[TagName] | None = Field(default=None, max_length=CONTACT_TAG_COUNT_MAX)
     # `notes` retired — see ContactCreate note above. Post to
     # /activities instead.
     custom_data: dict[str, Any] | None = None
@@ -321,8 +323,60 @@ class ContactDuplicateMatch(ORMModel):
     assigned_to_id: uuid.UUID | None = None
 
 
+class ContactTagOption(BaseModel):
+    """One tag in the org's vocabulary plus how many contacts carry it."""
+
+    tag: str
+    count: int
+
+
 class ContactTagsResponse(BaseModel):
+    tags: list[ContactTagOption]
+
+
+class ContactTagDelta(BaseModel):
+    """Add / remove tags on a contact without replacing the whole list,
+    so two people tagging the same contact never overwrite each other."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    add: list[TagName] = Field(default_factory=list, max_length=CONTACT_TAG_COUNT_MAX)
+    remove: list[TagName] = Field(default_factory=list, max_length=CONTACT_TAG_COUNT_MAX)
+
+    @model_validator(mode="after")
+    def _no_tag_in_both(self) -> ContactTagDelta:
+        overlap = set(self.add) & set(self.remove)
+        if overlap:
+            raise ValueError(f"Tag(s) both added and removed: {', '.join(sorted(overlap))}")
+        return self
+
+    def is_empty(self) -> bool:
+        return not self.add and not self.remove
+
+
+class ContactTagsResult(BaseModel):
+    """The contact's tag list after a change."""
+
     tags: list[str]
+
+
+class ContactBulkTagDelta(ContactTagDelta):
+    """Add / remove tags on up to 200 selected contacts."""
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def _has_change(self) -> ContactBulkTagDelta:
+        if self.is_empty():
+            raise ValueError("Give at least one tag to add or remove.")
+        return self
+
+
+class ContactBulkTagDeltaResult(BaseModel):
+    # Contacts whose tags actually changed.
+    updated: int
+    # Contacts left unchanged because the add would exceed the tag cap.
+    skipped_over_limit: int
 
 
 class ContactDuplicateCheckResponse(BaseModel):

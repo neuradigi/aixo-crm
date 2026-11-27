@@ -561,7 +561,10 @@ export class ContactsListPageComponent {
     this.api
       .listTags()
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (resp) => this.allTags.set(resp.tags), error: () => undefined });
+      .subscribe({
+        next: (resp) => this.allTags.set(resp.tags.map((option) => option.tag)),
+        error: () => undefined,
+      });
   }
 
   protected onRowClick(item: ContactListItem): void {

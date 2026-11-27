@@ -88,6 +88,17 @@ export type EmailOptInSource =
   | 'bounce_hard'
   | 'manual_override';
 
+/** One tag in the org's vocabulary and how many contacts carry it. */
+export interface ContactTagOption {
+  tag: string;
+  count: number;
+}
+
+export interface ContactTagDelta {
+  add?: string[];
+  remove?: string[];
+}
+
 export interface ConsentEvent {
   id: string;
   channel: string;
@@ -385,10 +396,19 @@ export class ContactsApiService extends BaseCrudApiService<Contact, ContactCreat
   /** Live duplicate check called from the create / edit modal as the
    * user types. Backend matches phone on last-10-digit suffix and
    * email case-insensitively. */
-  /** Every distinct tag on the org's contacts — options for the list
-   *  page's Tags column filter. */
-  listTags(): Observable<{ tags: string[] }> {
-    return this.http.get<{ tags: string[] }>(`${this.base}/tags`);
+  /** Distinct tags on the org's contacts with how many contacts carry
+   *  each — options for tag filters and pickers. `q` searches
+   *  server-side so tags past the default limit are still reachable. */
+  listTags(params: { q?: string; limit?: number } = {}): Observable<{ tags: ContactTagOption[] }> {
+    return this.http.get<{ tags: ContactTagOption[] }>(`${this.base}/tags`, {
+      params: buildHttpParams(params),
+    });
+  }
+
+  /** Add / remove tags without replacing the list. Resolves to the
+   *  contact's tags after the change (including anyone else's edits). */
+  updateTags(id: string, delta: ContactTagDelta): Observable<{ tags: string[] }> {
+    return this.http.post<{ tags: string[] }>(`${this.base}/${id}/tags`, delta);
   }
 
   checkDuplicate(query: {

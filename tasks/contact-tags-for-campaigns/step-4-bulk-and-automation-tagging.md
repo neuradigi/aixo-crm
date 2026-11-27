@@ -7,8 +7,9 @@ them respect the cap, never lose a concurrent change, and fire `contact.tag_adde
 
 ## Scope
 
-1. `shared/schemas/bulk_actions.py` — `BulkTagDelta {ids: 1..200, add, remove}` (reusing
-   `ContactTagDelta` rules) and `BulkTagDeltaResult {updated, skipped_over_limit}`.
+1. `contacts/schemas.py` — `ContactBulkTagDelta {ids: 1..200, add, remove}` (extends
+   `ContactTagDelta`; lives in contacts, not `shared/`, because `shared/` must not import
+   `TagName` from a core module) and `ContactBulkTagDeltaResult {updated, skipped_over_limit}`.
 2. `contacts/service.py` — `bulk_tag_delta_contacts(...)`: one `stage_tag_delta` over the ids
    (contacts that would exceed 32 on add are reported in `skipped_over_limit`, not failed),
    commit, publish. `bulk_add_tag_contacts` becomes a thin call into it (route still used by the

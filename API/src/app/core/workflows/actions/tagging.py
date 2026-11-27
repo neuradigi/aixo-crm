@@ -102,19 +102,19 @@ def _resolve_lead_id(*, node: dict[str, Any], context: dict[str, Any]):
 # --- tagging.add_tag / remove_tag ----------------------------------------
 
 
-async def _add_tag(session, *, run, step_run, node, context):
-    from sqlalchemy import select
-
+async def _apply_tag_change(session, *, run, node, context, action: str, operation: str):
+    """Shared body of add_tag / remove_tag: one delta through the contacts
+    service (row lock, tag cap, `contact.tag_*` events), scoped to the
+    run's org."""
     from src.app.core.contacts import service as contacts_service
-    from src.app.core.contacts.models import Contact
-    from src.app.core.contacts.schemas import ContactUpdate
+    from src.app.core.contacts.schemas import ContactTagDelta
 
     cfg = node.get("config") or {}
     target = cfg.get("target", "contact")
     if target != "contact":
         # Lead tagging isn't supported (no Lead.tags column).
         raise ActionNotImplemented(
-            "tagging.add_tag",
+            action,
             f"target='{target}' not supported — Lead has no tags column",
         )
 
@@ -126,87 +126,37 @@ async def _add_tag(session, *, run, step_run, node, context):
     if not isinstance(tag, str) or not tag.strip():
         return _result_skipped("validation_failed", reason="empty_tag")
 
-    contact = (
-        await session.execute(select(Contact).where(Contact.id == contact_id))
-    ).scalar_one_or_none()
-    if contact is None:
-        return _result_skipped("target_not_found", reason="contact_missing")
-
-    existing = list(contact.tags or [])
-    if tag.strip() in existing:
-        # Idempotent — no-op.
-        return _result_sent({"contact_id": str(contact_id), "tag": tag.strip(), "added": False})
-    new_tags = existing + [tag.strip()]
     try:
-        await contacts_service.update_contact(
-            session,
-            contact_id=contact_id,
-            payload=ContactUpdate(tags=new_tags),
+        delta = ContactTagDelta(add=[tag]) if operation == "add" else ContactTagDelta(remove=[tag])
+        diff = await contacts_service.apply_contact_tag_delta(
+            session, org_id=run.org_id, contact_id=contact_id, delta=delta
         )
-    except Exception as exc:
+    except (HTTPException, ValidationError) as exc:
         reason, msg = _classify(exc)
         return _result_skipped(reason, error=msg)
 
-    return _result_sent({"contact_id": str(contact_id), "tag": tag.strip(), "added": True})
+    clean_tag = delta.add[0] if operation == "add" else delta.remove[0]
+    changed_key = "added" if operation == "add" else "removed"
+    changed = bool(diff.added if operation == "add" else diff.removed)
+    return _result_sent({"contact_id": str(contact_id), "tag": clean_tag, changed_key: changed})
+
+
+async def _add_tag(session, *, run, step_run, node, context):
+    """Idempotent — adding a tag the contact already has is a no-op."""
+    return await _apply_tag_change(
+        session, run=run, node=node, context=context, action="tagging.add_tag", operation="add"
+    )
 
 
 async def _remove_tag(session, *, run, step_run, node, context):
-    from sqlalchemy import select
-
-    from src.app.core.contacts import service as contacts_service
-    from src.app.core.contacts.models import Contact
-    from src.app.core.contacts.schemas import ContactUpdate
-
-    cfg = node.get("config") or {}
-    target = cfg.get("target", "contact")
-    if target != "contact":
-        raise ActionNotImplemented(
-            "tagging.remove_tag",
-            f"target='{target}' not supported — Lead has no tags column",
-        )
-
-    contact_id = _resolve_contact_id(run=run, node=node, context=context)
-    if contact_id is None:
-        return _result_skipped("target_not_found", reason="no_contact_id")
-
-    tag = _render(cfg.get("tag"), context)
-    if not isinstance(tag, str) or not tag.strip():
-        return _result_skipped("validation_failed", reason="empty_tag")
-
-    contact = (
-        await session.execute(select(Contact).where(Contact.id == contact_id))
-    ).scalar_one_or_none()
-    if contact is None:
-        return _result_skipped("target_not_found", reason="contact_missing")
-
-    existing = list(contact.tags or [])
-    target_tag = tag.strip()
-    if target_tag not in existing:
-        # Silent — no-op + no error.
-        return _result_sent(
-            {
-                "contact_id": str(contact_id),
-                "tag": target_tag,
-                "removed": False,
-            }
-        )
-    new_tags = [t for t in existing if t != target_tag]
-    try:
-        await contacts_service.update_contact(
-            session,
-            contact_id=contact_id,
-            payload=ContactUpdate(tags=new_tags),
-        )
-    except Exception as exc:
-        reason, msg = _classify(exc)
-        return _result_skipped(reason, error=msg)
-
-    return _result_sent(
-        {
-            "contact_id": str(contact_id),
-            "tag": target_tag,
-            "removed": True,
-        }
+    """Silent on a missing tag — no-op, no error."""
+    return await _apply_tag_change(
+        session,
+        run=run,
+        node=node,
+        context=context,
+        action="tagging.remove_tag",
+        operation="remove",
     )
 
 

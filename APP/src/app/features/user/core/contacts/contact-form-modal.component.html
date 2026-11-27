@@ -205,18 +205,21 @@
 
           @if (!isHidden('tags')) {
             <div class="field">
-              <label class="field-label" for="cf_tags">
+              <span class="field-label">
                 {{ stdField('tags')?.label ?? 'Tags' }}
-              </label>
-              <input
-                id="cf_tags"
-                type="text"
-                formControlName="tags_csv"
-                class="input"
-                [attr.placeholder]="stdField('tags')?.placeholder ?? 'lead, vip'"
+              </span>
+              <crm-tag-input
+                formControlName="tags"
+                [suggestions]="tagVocabulary.suggestions()"
+                [placeholder]="stdField('tags')?.placeholder ?? 'Add a tag…'"
+                [ariaLabel]="stdField('tags')?.label ?? 'Tags'"
+                (lookup)="tagVocabulary.search($event)"
               />
               <p class="field-hint">
-                {{ stdField('tags')?.help_text ?? 'Comma-separated.' }}
+                {{
+                  stdField('tags')?.help_text ??
+                    'Press Enter or comma to add. Pick an existing tag to keep categories consistent.'
+                }}
               </p>
             </div>
           }

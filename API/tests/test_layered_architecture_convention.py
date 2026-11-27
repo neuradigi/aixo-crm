@@ -185,7 +185,6 @@ _TRANSACTION_EXCEPTIONS: dict[str, str] = {
     "core/chatbots/nodes/ask_address.py": "Ask-Address handler commits after save-target write",
     "core/chatbots/nodes/ask_location.py": "Ask-Location handler commits after save-target write",
     "core/chatbots/nodes/ask_media.py": "Ask-Media handler commits after save-target write",
-    "core/chatbots/nodes/add_tag.py": "Add-Tag handler commits after tag remove",
     "core/chatbots/nodes/set_custom_field.py": "Set-Custom-Field handler commits after save-target write",
     "core/chatbots/nodes/handoff_to_human.py": "Handoff handler commits after Conversation.assigned_to_id set",
     "core/chatbots/nodes/connect_flow.py": "Connect-Flow handler commits after target-bot start",
@@ -270,8 +269,7 @@ _HELPER_CRUD_EXCEPTIONS: dict[str, str] = {
     # --- Conversation adapter (inbound email)
     "core/conversations/adapters/email.py": "Email adapter (own session)",
     "core/conversations/adapters/email_platform_from.py": (
-        "Platform-from helper — token-collision retry loop mirrors "
-        "channel_endpoints.data_access"
+        "Platform-from helper — token-collision retry loop mirrors channel_endpoints.data_access"
     ),
     # --- Email sending-domains sweep (Step 6)
     "core/email_sender_setup/tasks.py": (

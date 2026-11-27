@@ -1,10 +1,10 @@
 """Add Tag node (``tasks/chatbot-builder`` Step 9).
 
-Adds one or more tags to the run's linked contact. Reuses the
-existing ``bulk_add_tag_contacts`` helper in
-:mod:`core.contacts.service` — Postgres ``array_append`` with a
-``= ANY(tags)`` guard makes the operation idempotent (repeat adds
-of the same tag don't duplicate).
+Adds or removes tags on the run's linked contact through the contacts
+tag-delta service (``contacts.service.apply_contact_tag_delta``), so a
+bot tag change follows the same rules as every other tag change: row
+lock, 32-tag cap, and ``contact.tag_added`` / ``contact.tag_removed``
+events for workflows.
 
 Config shape::
 
@@ -36,13 +36,9 @@ async def handle(ctx: NodeExecutionContext) -> NodeResult:
     tags = cfg.get("tags") or []
 
     if entity != "contact":
-        return _shared.errored_result(
-            f"add_tag.entity={entity!r} — v1 supports 'contact' only"
-        )
+        return _shared.errored_result(f"add_tag.entity={entity!r} — v1 supports 'contact' only")
     if operation not in {"add", "remove"}:
-        return _shared.errored_result(
-            f"add_tag.operation must be add|remove; got {operation!r}"
-        )
+        return _shared.errored_result(f"add_tag.operation must be add|remove; got {operation!r}")
     if not isinstance(tags, list) or not tags:
         return _shared.errored_result("add_tag.tags must be a non-empty list")
 
@@ -62,51 +58,37 @@ async def handle(ctx: NodeExecutionContext) -> NodeResult:
             }
         )
 
+    from fastapi import HTTPException
+    from pydantic import ValidationError
+
     from src.app.core.contacts import service as contacts_service
+    from src.app.core.contacts.schemas import ContactTagDelta
 
-    applied: list[str] = []
-    for tag in tags:
-        clean = str(tag).strip()
-        if not clean:
-            continue
-        if operation == "add":
-            try:
-                await contacts_service.bulk_add_tag_contacts(
-                    ctx.session,
-                    ids=[ctx.run.contact_id],
-                    tag=clean,
-                    org_id=ctx.run.org_id,
-                )
-                applied.append(clean)
-            except Exception as exc:  # noqa: BLE001
-                return _shared.errored_result(
-                    f"add_tag failed for {clean!r}: {exc}"
-                )
-        else:
-            # v1 remove: read-modify-write on the contact's tags
-            # array. Batched remove helper is a follow-up.
-            from src.app.core.chatbots import data_access as _dal
+    cleaned = [str(tag) for tag in tags if str(tag).strip()]
+    try:
+        delta = (
+            ContactTagDelta(add=cleaned) if operation == "add" else ContactTagDelta(remove=cleaned)
+        )
+    except ValidationError as exc:
+        return _shared.errored_result(f"add_tag: invalid tag(s): {exc.errors()[0]['msg']}")
 
-            contact = await _dal.load_contact_for_bot_write(
-                ctx.session, org_id=ctx.run.org_id, contact_id=ctx.run.contact_id
-            )
-            if contact is None:
-                return NodeResult(
-                    skip_reason="contact_missing",
-                    output={"tags_attempted": tags},
-                )
-            current = list(contact.tags or [])
-            if clean in current:
-                current.remove(clean)
-                contact.tags = current
-                await ctx.session.commit()
-                applied.append(clean)
+    try:
+        diff = await contacts_service.apply_contact_tag_delta(
+            ctx.session,
+            org_id=ctx.run.org_id,
+            contact_id=ctx.run.contact_id,
+            delta=delta,
+        )
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return NodeResult(skip_reason="contact_missing", output={"tags_attempted": tags})
+        return _shared.errored_result(f"add_tag failed: {exc.detail}")
 
     return NodeResult(
         output={
             "entity": entity,
             "operation": operation,
-            "tags_applied": applied,
+            "tags_applied": diff.added if operation == "add" else diff.removed,
         }
     )
 
