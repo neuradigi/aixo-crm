@@ -27,6 +27,7 @@ from src.app.core.campaigns.models import (
     CampaignMessageStatus,
     CampaignStatus,
 )
+from src.app.core.contacts.data_access import build_contact_filters
 from src.app.core.contacts.models import Contact
 from src.app.core.conversations.models import (
     Conversation,
@@ -191,7 +192,8 @@ async def list_contact_ids_for_audience(
     *,
     q: str | None,
     source: str | None,
-    tag: str | None,
+    tags: list[str] | None,
+    exclude_tags: list[str] | None = None,
     lead_statuses: list[str] | None = None,
     lead_stages: list[str] | None = None,
     lead_sources: list[str] | None = None,
@@ -199,67 +201,24 @@ async def list_contact_ids_for_audience(
 ) -> list[uuid.UUID]:
     """Resolve the audience filter into contact ids.
 
-    Contact-level predicates (``q`` / ``source`` / ``tag``) still match
-    columns on `tbl_contacts` directly. The lead-linked predicates
-    (``lead_statuses`` / ``lead_stages`` / ``lead_sources``) each emit
-    an EXISTS subquery against `tbl_leads` — a contact qualifies when
-    it has at least one lead matching every requested facet.
+    Predicates come from the contacts module's `build_contact_filters`
+    — the same builder behind the `/contacts` list the campaign modal
+    previews with — so preview and dispatch select the same contacts.
 
     Empty filter ⇒ every contact in the org (auto-tenant-scoped).
     """
-    # Local import — Lead already depends on Contact via FK, so
-    # importing at module scope would create a circular in the
-    # campaigns → contacts → leads chain during model registration.
-    from src.app.core.leads.models import Lead
-
-    filters: list[Any] = []
-    if q:
-        like = f"%{q}%"
-        filters.append(
-            or_(
-                Contact.full_name.ilike(like),
-                Contact.phone.ilike(like),
-                Contact.email.ilike(like),
-            )
-        )
-    if source:
-        filters.append(Contact.source == source)
-    if tag:
-        filters.append(Contact.tags.contains([tag]))
-    if lead_statuses:
-        filters.append(
-            select(Lead.id)
-            .where(Lead.contact_id == Contact.id)
-            .where(Lead.status.in_(lead_statuses))
-            .exists()
-        )
-    if lead_stages:
-        filters.append(
-            select(Lead.id)
-            .where(Lead.contact_id == Contact.id)
-            .where(Lead.pipeline_stage.in_(lead_stages))
-            .exists()
-        )
-    if lead_sources:
-        filters.append(
-            select(Lead.id)
-            .where(Lead.contact_id == Contact.id)
-            .where(Lead.source.in_(lead_sources))
-            .exists()
-        )
-    if lead_form_ids:
-        # Multi-form (Step 7): narrow "Forms" audience to specific
-        # forms via ``attribution.form_id``. Same predicate the
-        # contacts DAL uses — kept parallel so preview + dispatch
-        # always agree.
-        form_id_strings = [str(fid) for fid in lead_form_ids]
-        filters.append(
-            select(Lead.id)
-            .where(Lead.contact_id == Contact.id)
-            .where(Lead.source == "widget")
-            .where(Lead.attribution["form_id"].astext.in_(form_id_strings))
-            .exists()
-        )
+    filters = build_contact_filters(
+        q=q,
+        sources=[source] if source else None,
+        tags=tags,
+        exclude_tags=exclude_tags,
+        assigned_to_ids=None,
+        custom_filters=(),
+        lead_statuses=lead_statuses,
+        lead_stages=lead_stages,
+        lead_sources=lead_sources,
+        lead_form_ids=lead_form_ids,
+    )
 
     stmt = select(Contact.id)
     if filters:

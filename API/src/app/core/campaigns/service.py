@@ -868,7 +868,7 @@ async def resolve_audience(
       - Empty filter → every contact in the org (RLS handles isolation).
       - `group_id` set → delegate to `contact_groups.resolve_group_contacts`
         which honours static-vs-dynamic group semantics.
-      - `q/source/tag` set → run the predicate directly.
+      - `q/source/tags/exclude_tags/lead_*` set → run the predicate directly.
       - `contact_ids` set → send to exactly those ids (scoped through
         the tenant filter so cross-org ids drop out).
 
@@ -897,13 +897,14 @@ async def resolve_audience(
             return []
         return await resolve_group_contacts(session, group_id=af.group_id)
 
-    # Filter mode (q / source / tag / lead_*) — falls through to ""
-    # empty filter = "everyone" by intentional design.
+    # Filter mode (q / source / tags / exclude_tags / lead_*) — falls
+    # through to "" empty filter = "everyone" by intentional design.
     return await campaigns_da.list_contact_ids_for_audience(
         session,
         q=af.q,
         source=af.source,
-        tag=af.tag,
+        tags=af.effective_tags,
+        exclude_tags=af.exclude_tags,
         lead_statuses=af.lead_status,
         lead_stages=af.lead_stage,
         lead_sources=af.lead_source,

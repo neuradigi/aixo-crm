@@ -10,11 +10,12 @@ statically here.
 
 from __future__ import annotations
 
+import unicodedata
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
 
 from src.app.shared.schemas import (
     BulkAddTag,
@@ -31,13 +32,41 @@ from src.app.shared.schemas import (
 _TAG_MAX = 64
 _TAG_COUNT_MAX = 32
 
+# Invisible direction / zero-width controls. They let two tags that look
+# identical compare unequal (and can reorder rendered text), so they are
+# rejected rather than stored.
+_TAG_FORBIDDEN_CHARS = frozenset(
+    [chr(c) for c in range(0x200B, 0x2010)]
+    + [chr(c) for c in range(0x202A, 0x202F)]
+    + [chr(c) for c in range(0x2066, 0x206A)]
+    + ["﻿"]
+)
+
+
+def _validate_tag(value: str) -> str:
+    tag = unicodedata.normalize("NFC", value).strip()
+    if not tag:
+        raise ValueError("Tag must not be empty.")
+    if len(tag) > _TAG_MAX:
+        raise ValueError(f"Tag must be at most {_TAG_MAX} characters.")
+    if any(unicodedata.category(ch) == "Cc" or ch in _TAG_FORBIDDEN_CHARS for ch in tag):
+        raise ValueError("Tag contains control or invisible characters.")
+    return tag
+
+
+# One contact tag: NFC-normalised, trimmed, 1–64 visible characters.
+# Every API surface that accepts a tag uses this type so an invalid tag
+# is a 422 everywhere instead of being silently dropped or reaching the
+# varchar(64) column.
+TagName = Annotated[str, AfterValidator(_validate_tag)]
+
 
 class ContactCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
     phone: str | None = Field(default=None, max_length=32)
     email: EmailStr | None = None
     source: str | None = Field(default=None, max_length=64)
-    tags: list[str] = Field(default_factory=list, max_length=_TAG_COUNT_MAX)
+    tags: list[TagName] = Field(default_factory=list, max_length=_TAG_COUNT_MAX)
     # `notes` used to live here as a single TEXT column on the contact;
     # retired in migration 0158 in favour of ``tbl_activities`` rows
     # (``type='note'``) which are versioned + authored + queryable.
@@ -48,13 +77,9 @@ class ContactCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     def cleaned_tags(self) -> list[str]:
-        # Stable order, no duplicates, no empties, length cap honoured.
-        seen: dict[str, None] = {}
-        for tag in self.tags:
-            value = tag.strip()
-            if 0 < len(value) <= _TAG_MAX and value not in seen:
-                seen[value] = None
-        return list(seen)
+        # Stable order, no duplicates. Each tag is already validated by
+        # `TagName`, so nothing is dropped here.
+        return list(dict.fromkeys(self.tags))
 
 
 class ContactUpdate(BaseModel):
@@ -68,7 +93,7 @@ class ContactUpdate(BaseModel):
     phone: str | None = Field(default=None, max_length=32)
     email: EmailStr | None = None
     source: str | None = Field(default=None, max_length=64)
-    tags: list[str] | None = Field(default=None, max_length=_TAG_COUNT_MAX)
+    tags: list[TagName] | None = Field(default=None, max_length=_TAG_COUNT_MAX)
     # `notes` retired — see ContactCreate note above. Post to
     # /activities instead.
     custom_data: dict[str, Any] | None = None

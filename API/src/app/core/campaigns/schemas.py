@@ -6,20 +6,24 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from src.app.core.campaigns.models import CampaignMessageStatus, CampaignStatus
+from src.app.core.contacts.schemas import TagName
 from src.app.core.conversations.models import ConversationChannel
 from src.app.shared.schemas import ORMModel, PaginatedResponse
+
+_AUDIENCE_TAGS_MAX = 20
 
 
 class AudienceFilter(BaseModel):
     """Campaign audience target — four mutually-exclusive modes:
 
       1. **Empty** (`{}`): "Everyone in the org". The default.
-      2. **Filter**: any of `q` / `source` / `tag` / lead-linked
-         (`lead_status` / `lead_stage` / `lead_source`) — same shape
-         as the `/contacts` list query. Dynamic resolution at send time.
+      2. **Filter**: any of `q` / `source` / `tags` / `exclude_tags` /
+         lead-linked (`lead_status` / `lead_stage` / `lead_source`) —
+         same shape as the `/contacts` list query. Dynamic resolution
+         at send time.
       3. **Group**: `group_id` references a saved `contact_groups` row
          (Step 3.5.7). Dynamic groups re-resolve at send time; static
          groups send to their frozen member list.
@@ -29,11 +33,25 @@ class AudienceFilter(BaseModel):
     Mixing modes 2/3/4 is rejected at the schema layer — the
     audience builder UI (Step 3.5.9) enforces "one mode at a time"
     via radio toggle, and the backend echoes the same constraint so
-    a direct API call can't bypass it."""
+    a direct API call can't bypass it.
+
+    Unknown keys are rejected: an ignored key would silently widen the
+    audience towards "everyone". Empty tag lists are rejected for the
+    same reason. The single-value `tag` key is the pre-2026-11 shape;
+    it is still read (and stored as sent) until every writer emits
+    `tags` — see `tasks/contact-tags-for-campaigns/`."""
+
+    model_config = ConfigDict(extra="forbid")
 
     q: str | None = None
     source: str | None = None
-    tag: str | None = None
+    tag: TagName | None = None
+    # Contacts carrying ANY of `tags`, minus contacts carrying ANY of
+    # `exclude_tags`.
+    tags: list[TagName] | None = Field(default=None, min_length=1, max_length=_AUDIENCE_TAGS_MAX)
+    exclude_tags: list[TagName] | None = Field(
+        default=None, min_length=1, max_length=_AUDIENCE_TAGS_MAX
+    )
     # Lead-linked filters — restrict to contacts that have at least
     # one Lead row matching each list. Same semantics as the
     # ``/contacts?lead_status=...&lead_stage=...&lead_source=...``
@@ -51,10 +69,14 @@ class AudienceFilter(BaseModel):
 
     @model_validator(mode="after")
     def _no_mixed_modes(self) -> AudienceFilter:
+        if self.tag is not None and self.tags is not None:
+            raise ValueError("Use either tag or tags, not both.")
         has_filter = bool(
             self.q
             or self.source
             or self.tag
+            or self.tags
+            or self.exclude_tags
             or self.lead_status
             or self.lead_stage
             or self.lead_source
@@ -66,12 +88,21 @@ class AudienceFilter(BaseModel):
         if active > 1:
             raise ValueError(
                 "Use exactly one of: filter fields "
-                "(q/source/tag/lead_status/lead_stage/lead_source/lead_form_id), "
-                "group_id, or contact_ids."
+                "(q/source/tags/exclude_tags/lead_status/lead_stage/lead_source/"
+                "lead_form_id), group_id, or contact_ids."
             )
         if self.contact_ids is not None and len(self.contact_ids) == 0:
             raise ValueError("contact_ids must be a non-empty list when set.")
         return self
+
+    @property
+    def effective_tags(self) -> list[str] | None:
+        """Include-tags regardless of which shape the row was saved in."""
+        if self.tags is not None:
+            return self.tags
+        if self.tag is not None:
+            return [self.tag]
+        return None
 
 
 class TemplateVariableBinding(BaseModel):
@@ -149,8 +180,7 @@ class CampaignCreate(BaseModel):
             return self
         if self.body_html is not None and self.channel != ConversationChannel.email:
             raise ValueError(
-                "body_html is only valid for email campaigns; "
-                f"got channel={self.channel.value}"
+                f"body_html is only valid for email campaigns; got channel={self.channel.value}"
             )
         sources = [
             src

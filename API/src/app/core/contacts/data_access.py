@@ -161,27 +161,31 @@ async def delete_contact_row(session: AsyncSession, contact: Contact) -> None:
 # --- filter helpers -----------------------------------------------------
 
 
-def _build_filters(
+def build_contact_filters(
     *,
     q: str | None,
     sources: list[str] | None,
     tags: list[str] | None,
     assigned_to_ids: list[uuid.UUID] | None,
     custom_filters: Iterable[tuple[str, str]],
+    exclude_tags: list[str] | None = None,
     exclude_anonymised: bool = False,
     lead_statuses: list[str] | None = None,
     lead_stages: list[str] | None = None,
     lead_sources: list[str] | None = None,
     lead_form_ids: list[uuid.UUID] | None = None,
 ) -> list[ColumnElement[bool]]:
-    """Shared filter assembler used by list / export / count helpers.
+    """Shared filter assembler used by list / export / count helpers and
+    by the campaigns audience resolver, so the campaign preview (contacts
+    list) and campaign dispatch always select the same contacts.
 
     Multi-value semantics — `sources`, `tags`, and `assigned_to_ids`
     take a list and produce an OR-set (rows matching any listed value).
-    Empty / None lists are ignored. Backed by the column-header filter
-    popover on the frontend, which lets an operator tick several
-    values on the same column at once. Same shape any other list page
-    can adopt when it wires the shared `app-column-filter`.
+    `exclude_tags` drops rows carrying any listed tag. Empty / None lists
+    are ignored. Backed by the column-header filter popover on the
+    frontend, which lets an operator tick several values on the same
+    column at once. Same shape any other list page can adopt when it
+    wires the shared `app-column-filter`.
     """
     filters: list[ColumnElement[bool]] = []
     if q:
@@ -196,11 +200,11 @@ def _build_filters(
     if sources:
         filters.append(Contact.source.in_(sources))
     if tags:
-        # OR of per-tag `@>` (contains) checks — row matches when its
-        # tags array contains at least one of the requested tags. Uses
-        # the same operator as the existing single-tag filter so no new
-        # index characteristic is introduced.
-        filters.append(or_(*(Contact.tags.contains([t]) for t in tags)))
+        # Array overlap (`&&`): the row carries at least one requested
+        # tag. Served by the GIN index on `tags`.
+        filters.append(Contact.tags.overlap(tags))
+    if exclude_tags:
+        filters.append(~Contact.tags.overlap(exclude_tags))
     if assigned_to_ids:
         filters.append(Contact.assigned_to_id.in_(assigned_to_ids))
     if exclude_anonymised:
@@ -287,7 +291,7 @@ def build_contact_list_query(
     resolves from `_SORT_COLUMNS` (kept there so the alphabet of valid
     keys lives next to the route schema).
     """
-    filters = _build_filters(
+    filters = build_contact_filters(
         q=q,
         sources=sources,
         tags=tags,
@@ -518,7 +522,7 @@ async def count_contacts_filtered(
     custom_filters: Iterable[tuple[str, str]],
 ) -> int:
     """Total contacts matching the filter set — used by CSV-export cap."""
-    filters = _build_filters(
+    filters = build_contact_filters(
         q=q,
         sources=sources,
         tags=tags,
@@ -811,7 +815,7 @@ async def list_contacts_for_export(
     Caller is expected to have already gated on `count_contacts_filtered`
     so the result fits in memory.
     """
-    filters = _build_filters(
+    filters = build_contact_filters(
         q=q,
         sources=sources,
         tags=tags,

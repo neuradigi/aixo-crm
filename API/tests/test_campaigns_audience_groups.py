@@ -47,22 +47,28 @@ class TestAudienceFilterModes:
         the builder UI's radio toggle can't produce — but a direct API
         call could, so the schema rejects it to keep dispatch's
         resolution path unambiguous."""
-        with pytest.raises(ValidationError, match="not both"):
+        with pytest.raises(ValidationError, match="exactly one of"):
             AudienceFilter(tag="vip", group_id=uuid.uuid4())
 
     def test_q_plus_group_id_rejected(self):
-        with pytest.raises(ValidationError, match="not both"):
+        with pytest.raises(ValidationError, match="exactly one of"):
             AudienceFilter(q="ash", group_id=uuid.uuid4())
 
     def test_source_plus_group_id_rejected(self):
-        with pytest.raises(ValidationError, match="not both"):
+        with pytest.raises(ValidationError, match="exactly one of"):
             AudienceFilter(source="walk-in", group_id=uuid.uuid4())
 
     def test_empty_string_filter_fields_not_treated_as_set(self):
-        """Defensive: a UI that ships empty-string filter values
+        """Defensive: a UI that ships empty-string `q` / `source`
         alongside a group_id shouldn't trigger the mixed-mode error.
         Empty strings are falsy, so the validator's `bool(...)` check
         treats them as 'not set'."""
         # Per validator: `has_filter = bool(self.q or ...)` — "" is False.
-        af = AudienceFilter(q="", source="", tag="", group_id=uuid.uuid4())
+        af = AudienceFilter(q="", source="", group_id=uuid.uuid4())
         assert af.group_id is not None
+
+    def test_empty_string_tag_is_rejected(self):
+        """A blank tag is a validation error, never "no tag filter" —
+        tasks/contact-tags-for-campaigns Decision 4."""
+        with pytest.raises(ValidationError):
+            AudienceFilter(tag="", group_id=uuid.uuid4())
