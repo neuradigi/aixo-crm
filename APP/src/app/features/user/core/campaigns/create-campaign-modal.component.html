@@ -1027,9 +1027,12 @@
       }
 
       <!-- Pinned to the bottom of the scrolling modal so Next / Save stay
-           reachable on long steps (custom filter, variable mapping). -->
+           reachable on long steps (custom filter, variable mapping).
+           `-bottom-5` cancels the modal's `p-5`: browsers pin a sticky
+           element inside the scroller's padding, which left a strip where
+           the form scrolled through below the bar. -->
       <div
-        class="sticky bottom-0 -mx-5 -mb-5 flex items-center justify-between gap-2 border-t border-subtle bg-surface px-5 py-3"
+        class="sticky -bottom-5 -mx-5 -mb-5 flex items-center justify-between gap-2 border-t border-subtle bg-surface px-5 py-3"
       >
         <button
           type="button"
