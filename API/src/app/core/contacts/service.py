@@ -26,7 +26,6 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import HTTPException, status
-from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1168,6 +1167,7 @@ async def list_contacts(
     q: str | None = None,
     sources: list[str] | None = None,
     tags: list[str] | None = None,
+    exclude_tags: list[str] | None = None,
     assigned_to_ids: list[uuid.UUID] | None = None,
     custom_filters: Iterable[tuple[str, str]] = (),
     sort: Literal["full_name", "created_at", "last_activity_at"] = "created_at",
@@ -1185,7 +1185,8 @@ async def list_contacts(
     - `q` matches full_name / phone / email via ILIKE; trigram GIN index
       accelerates the full_name leg.
     - `sources`, `tags`, `assigned_to_ids` are multi-value OR-sets — a
-      row matches when its value belongs to the given list. Backs the
+      row matches when its value belongs to the given list.
+      `exclude_tags` drops rows carrying any of the listed tags. Backs the
       column-header filter popovers on the list page (an operator can
       tick e.g. Source ∈ {Walk-in, Website}). `None` / empty means no
       filter on that column.
@@ -1201,6 +1202,7 @@ async def list_contacts(
         q=q,
         sources=sources,
         tags=tags,
+        exclude_tags=exclude_tags,
         assigned_to_ids=assigned_to_ids,
         custom_filters=custom_filters,
         sort_column=_SORT_COLUMNS[sort],
@@ -1400,27 +1402,6 @@ async def bulk_delete_contacts(
             ),
         ) from exc
     return deleted
-
-
-async def bulk_add_tag_contacts(
-    session: AsyncSession,
-    *,
-    ids: list[uuid.UUID],
-    tag: str,
-    org_id: uuid.UUID,
-) -> int:
-    """Add one tag to the selected contacts; returns how many changed.
-    Kept for the contacts list's "Add tag" action until it moves to
-    ``POST /contacts/bulk-tags`` (contact-tags-for-campaigns Step 5)."""
-    try:
-        delta = ContactTagDelta(add=[tag])
-    except ValidationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=exc.errors(include_url=False, include_context=False),
-        ) from exc
-    staged = await bulk_tag_delta_contacts(session, org_id=org_id, ids=ids, delta=delta)
-    return sum(1 for d in staged.diffs if d.added)
 
 
 # --- Duplicate check + CSV export -------------------------------------------

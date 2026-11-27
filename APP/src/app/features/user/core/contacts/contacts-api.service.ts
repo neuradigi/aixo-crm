@@ -165,6 +165,8 @@ export interface ContactListQuery {
   source?: string[];
   /** Tags to include (OR-set). Same repeated-param shape as `source`. */
   tag?: string[];
+  /** Drop contacts carrying any of these tags. Same repeated-param shape. */
+  exclude_tag?: string[];
   /** Owner UUIDs to include (OR-set). Same repeated-param shape as `source`. */
   assigned_to_id?: string[];
   sort?: ContactSortKey;
@@ -307,6 +309,7 @@ export class ContactsApiService extends BaseCrudApiService<Contact, ContactCreat
       q: query.q,
       source: query.source,
       tag: query.tag,
+      exclude_tag: query.exclude_tag,
       assigned_to_id: query.assigned_to_id,
       lead_status: query.lead_status,
       lead_stage: query.lead_stage,
@@ -379,11 +382,16 @@ export class ContactsApiService extends BaseCrudApiService<Contact, ContactCreat
     });
   }
 
-  bulkAddTag(ids: string[], tag: string): Observable<{ updated: number }> {
-    return this.http.post<{ updated: number }>(`${this.base}/bulk-add-tag`, {
-      ids,
-      tag,
-    });
+  /** Add / remove tags on many contacts. `skipped_over_limit` counts
+   *  contacts an add would have pushed past the tag cap (left unchanged). */
+  bulkTags(
+    ids: string[],
+    delta: ContactTagDelta,
+  ): Observable<{ updated: number; skipped_over_limit: number }> {
+    return this.http.post<{ updated: number; skipped_over_limit: number }>(
+      `${this.base}/bulk-tags`,
+      { ids, ...delta },
+    );
   }
 
   /** Bulk-hydrate `ContactListItem`s by id. Used by list pages that

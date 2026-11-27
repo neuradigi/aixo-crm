@@ -37,15 +37,13 @@ class AudienceFilter(BaseModel):
 
     Unknown keys are rejected: an ignored key would silently widen the
     audience towards "everyone". Empty tag lists are rejected for the
-    same reason. The single-value `tag` key is the pre-2026-11 shape;
-    it is still read (and stored as sent) until every writer emits
-    `tags` — see `tasks/contact-tags-for-campaigns/`."""
+    same reason. (The pre-2026-11 single-value `tag` key was migrated to
+    `tags` by migration 0244 and is now an unknown key.)"""
 
     model_config = ConfigDict(extra="forbid")
 
     q: str | None = None
     source: str | None = None
-    tag: TagName | None = None
     # Contacts carrying ANY of `tags`, minus contacts carrying ANY of
     # `exclude_tags`.
     tags: list[TagName] | None = Field(default=None, min_length=1, max_length=_AUDIENCE_TAGS_MAX)
@@ -69,12 +67,9 @@ class AudienceFilter(BaseModel):
 
     @model_validator(mode="after")
     def _no_mixed_modes(self) -> AudienceFilter:
-        if self.tag is not None and self.tags is not None:
-            raise ValueError("Use either tag or tags, not both.")
         has_filter = bool(
             self.q
             or self.source
-            or self.tag
             or self.tags
             or self.exclude_tags
             or self.lead_status
@@ -94,15 +89,6 @@ class AudienceFilter(BaseModel):
         if self.contact_ids is not None and len(self.contact_ids) == 0:
             raise ValueError("contact_ids must be a non-empty list when set.")
         return self
-
-    @property
-    def effective_tags(self) -> list[str] | None:
-        """Include-tags regardless of which shape the row was saved in."""
-        if self.tags is not None:
-            return self.tags
-        if self.tag is not None:
-            return [self.tag]
-        return None
 
 
 class TemplateVariableBinding(BaseModel):

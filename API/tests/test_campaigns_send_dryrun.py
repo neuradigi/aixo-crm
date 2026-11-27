@@ -123,7 +123,7 @@ async def test_create_start_chunks_processed(layered_client, seeded_admin, _regi
         json={
             "name": "Diwali Promo",
             "channel": "whatsapp",
-            "audience_filter": {"tag": "batch"},
+            "audience_filter": {"tags": ["batch"]},
             "template": "Hi {{full_name}} — 20% off this week!",
         },
         headers=headers,
@@ -253,7 +253,7 @@ async def _create_batch_campaign(layered_client, headers, **extra) -> str:
         json={
             "name": "Batch",
             "channel": "whatsapp",
-            "audience_filter": {"tag": "batch"},
+            "audience_filter": {"tags": ["batch"]},
             "template": "Hi {{full_name}}",
             **extra,
         },

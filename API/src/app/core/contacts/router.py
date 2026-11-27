@@ -41,8 +41,6 @@ from src.app.core.contacts.data_export import build_contact_data_export
 from src.app.core.contacts.schemas import (
     ConsentEventOut,
     ContactAnonymiseRequest,
-    ContactBulkAddTag,
-    ContactBulkAddTagResult,
     ContactBulkDelete,
     ContactBulkDeleteResult,
     ContactBulkReassign,
@@ -72,7 +70,6 @@ from src.app.core.contacts.service import (
     CONTACT_TAG_OPTIONS_LIMIT,
     anonymise_contact,
     apply_contact_tag_delta,
-    bulk_add_tag_contacts,
     bulk_delete_contacts,
     bulk_reassign_contacts,
     bulk_tag_delta_contacts,
@@ -123,6 +120,13 @@ async def list_contacts_endpoint(
     tag: list[str] | None = Query(
         default=None,
         description="Filter by tag. Repeatable — OR-set semantics.",
+    ),
+    exclude_tag: list[str] | None = Query(
+        default=None,
+        description=(
+            "Drop contacts carrying any of these tags. Repeatable. Lets the "
+            "campaign builder preview an audience that excludes tags."
+        ),
     ),
     assigned_to_id: list[uuid.UUID] | None = Query(
         default=None,
@@ -189,6 +193,7 @@ async def list_contacts_endpoint(
         q=q,
         sources=source,
         tags=tag,
+        exclude_tags=exclude_tag,
         assigned_to_ids=assigned_to_id,
         custom_filters=_extract_custom_filters(request),
         sort=sort,
@@ -570,16 +575,6 @@ async def bulk_tags_endpoint(
         updated=sum(1 for d in staged.diffs if d.added or d.removed),
         skipped_over_limit=len(staged.skipped_over_limit),
     )
-
-
-@router.post("/bulk-add-tag", response_model=ContactBulkAddTagResult)
-async def bulk_add_tag_endpoint(
-    payload: ContactBulkAddTag,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_permissions("contacts.write")),
-) -> ContactBulkAddTagResult:
-    n = await bulk_add_tag_contacts(db, ids=payload.ids, tag=payload.tag, org_id=user.org_id)
-    return ContactBulkAddTagResult(updated=n)
 
 
 # --- Opt-in (whatsapp-platform-upgrade Step 22) ----------------------------

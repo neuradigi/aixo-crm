@@ -18,8 +18,6 @@ from typing import Annotated, Any
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from src.app.shared.schemas import (
-    BulkAddTag,
-    BulkAddTagResult,
     BulkDelete,
     BulkDeleteResult,
     BulkReassign,
@@ -282,11 +280,9 @@ class ContactReassign(BaseModel):
 
 ContactBulkReassign = BulkReassign
 ContactBulkDelete = BulkDelete
-ContactBulkAddTag = BulkAddTag
 
 ContactBulkReassignResult = BulkReassignResult
 ContactBulkDeleteResult = BulkDeleteResult
-ContactBulkAddTagResult = BulkAddTagResult
 
 
 class ContactHydrateRequest(BaseModel):

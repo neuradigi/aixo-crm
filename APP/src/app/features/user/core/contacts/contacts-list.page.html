@@ -684,29 +684,58 @@
     >
       <header class="border-b border-subtle px-5 py-4">
         <h2 id="bulk_tag_title" class="font-display text-base font-semibold text-default">
-          Add tag to {{ state.selectedCount() }} contact{{ state.selectedCount() === 1 ? '' : 's' }}
+          Tags for {{ state.selectedCount() }} contact{{ state.selectedCount() === 1 ? '' : 's' }}
         </h2>
+        <p class="mt-1 text-xs text-muted">
+          Tags group people for campaigns and WhatsApp templates.
+        </p>
       </header>
-      <div class="px-5 py-4">
-        <label for="bulk_tag_input" class="field-label">Tag</label>
-        <input
-          id="bulk_tag_input"
-          type="text"
-          [formControl]="tagInputControl"
-          class="input mt-1"
-          placeholder="e.g. vip"
-          maxlength="64"
-          list="bulk_tag_suggestions"
-          autocomplete="off"
-          (keydown.enter)="onBulkAddTag()"
-        />
-        <datalist id="bulk_tag_suggestions">
-          @for (t of allTags(); track t) {
-            <option [value]="t"></option>
+      <div class="space-y-4 px-5 py-4">
+        <!-- Add | Remove — AIXO segmented pill -->
+        <div
+          class="inline-flex h-[34px] items-center rounded-[10px] border border-subtle bg-surface p-1"
+          role="radiogroup"
+          aria-label="Add or remove tags"
+        >
+          @for (mode of bulkTagModes; track mode.value) {
+            <button
+              type="button"
+              role="radio"
+              class="inline-flex h-[26px] items-center gap-1 rounded-[7px] px-2.5 font-mono text-[12px] font-semibold transition"
+              [class.bg-accent-soft]="bulkTagMode() === mode.value"
+              [class.text-accent]="bulkTagMode() === mode.value"
+              [class.text-faint]="bulkTagMode() !== mode.value"
+              [attr.aria-checked]="bulkTagMode() === mode.value"
+              [disabled]="state.bulkSubmitting()"
+              (click)="bulkTagMode.set(mode.value)"
+            >
+              <lucide-icon [name]="mode.icon" class="h-3.5 w-3.5" />
+              {{ mode.label }}
+            </button>
           }
-        </datalist>
+        </div>
+        <div>
+          <span class="field-label">
+            {{ bulkTagMode() === 'add' ? 'Tags to add' : 'Tags to remove' }}
+          </span>
+          <crm-tag-input
+            class="mt-1 block"
+            [formControl]="bulkTagsControl"
+            [suggestions]="tagVocabulary.suggestions()"
+            [ariaLabel]="bulkTagMode() === 'add' ? 'Tags to add' : 'Tags to remove'"
+            placeholder="Type or pick a tag…"
+            (lookup)="tagVocabulary.search($event)"
+          />
+          <p class="field-hint mt-1">
+            {{
+              bulkTagMode() === 'add'
+                ? 'Contacts that already have a tag keep it once.'
+                : 'Contacts without a tag are left as they are.'
+            }}
+          </p>
+        </div>
         @if (state.bulkError(); as err) {
-          <p class="field-error mt-2">{{ err }}</p>
+          <p class="field-error">{{ err }}</p>
         }
       </div>
       <footer class="flex items-center justify-end gap-2 border-t border-subtle px-5 py-4">
@@ -721,10 +750,10 @@
         <button
           type="button"
           class="btn btn-primary"
-          [disabled]="state.bulkSubmitting()"
-          (click)="onBulkAddTag()"
+          [disabled]="state.bulkSubmitting() || bulkTagsControl.value.length === 0"
+          (click)="onBulkTags()"
         >
-          Add tag
+          {{ bulkTagMode() === 'add' ? 'Add tags' : 'Remove tags' }}
         </button>
       </footer>
     </div>

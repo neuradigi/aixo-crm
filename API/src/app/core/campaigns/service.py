@@ -903,7 +903,7 @@ async def resolve_audience(
         session,
         q=af.q,
         source=af.source,
-        tags=af.effective_tags,
+        tags=af.tags,
         exclude_tags=af.exclude_tags,
         lead_statuses=af.lead_status,
         lead_stages=af.lead_stage,

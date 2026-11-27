@@ -1,4 +1,4 @@
-"""Audience resolver — does `{q, source, tag}` actually narrow the set?"""
+"""Audience resolver — does `{q, source, tags}` actually narrow the set?"""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ async def test_filter_by_source(test_db, seeded_admin):
 @pytest.mark.asyncio
 async def test_filter_by_tag(test_db, seeded_admin):
     ids = await _seed_contacts(seeded_admin["org"].id)
-    out = await resolve_audience(test_db, audience_filter={"tag": "sofa"})
+    out = await resolve_audience(test_db, audience_filter={"tags": ["sofa"]})
     assert set(out) == {ids["alice"], ids["bob"]}
 
 
@@ -75,6 +75,6 @@ async def test_filter_combination_narrows_further(test_db, seeded_admin):
     ids = await _seed_contacts(seeded_admin["org"].id)
     out = await resolve_audience(
         test_db,
-        audience_filter={"source": "walk-in", "tag": "sofa"},
+        audience_filter={"source": "walk-in", "tags": ["sofa"]},
     )
     assert out == [ids["alice"]]

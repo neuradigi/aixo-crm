@@ -900,7 +900,10 @@ export class CampaignsPageComponent {
     const parts: string[] = [];
     if (c.audience_filter?.q) parts.push(`"${c.audience_filter.q}"`);
     if (c.audience_filter?.source) parts.push(`source: ${c.audience_filter.source}`);
-    if (c.audience_filter?.tag) parts.push(`tag: ${c.audience_filter.tag}`);
+    if (c.audience_filter?.tags?.length) parts.push(`tags: ${c.audience_filter.tags.join(', ')}`);
+    if (c.audience_filter?.exclude_tags?.length) {
+      parts.push(`not: ${c.audience_filter.exclude_tags.join(', ')}`);
+    }
     return parts.length ? parts.join(' · ') : 'Everyone';
   }
 

@@ -1,6 +1,6 @@
 """Shared request and result shapes for bulk-action endpoints.
 
-Each list-page bulk operation (reassign / delete / add-tag) used to
+Each list-page bulk operation (reassign / delete) used to
 ship a per-entity Pydantic class with byte-identical fields:
 
     class XBulkReassign(BaseModel):
@@ -30,9 +30,6 @@ from pydantic import BaseModel, ConfigDict, Field
 # can never touch more rows than a single page exposes.
 _MAX_IDS = 200
 
-# Tag length cap matches the contacts module's ``_TAG_MAX = 64``.
-_TAG_MAX = 64
-
 
 class BulkIds(BaseModel):
     """Base shape: a non-empty list of entity ids capped at ``_MAX_IDS``."""
@@ -59,14 +56,6 @@ class BulkDelete(BulkIds):
     """Bulk delete by id list. No extra fields."""
 
 
-class BulkAddTag(BulkIds):
-    """Bulk add a single tag to N entities."""
-
-    tag: str = Field(min_length=1, max_length=_TAG_MAX)
-
-    model_config = ConfigDict(str_strip_whitespace=True)
-
-
 # --- Result envelopes ----------------------------------------------------
 
 
@@ -76,7 +65,3 @@ class BulkReassignResult(BaseModel):
 
 class BulkDeleteResult(BaseModel):
     deleted: int
-
-
-class BulkAddTagResult(BaseModel):
-    updated: int

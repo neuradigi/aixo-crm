@@ -47,6 +47,8 @@ import {
 import { ListPageState } from '../shared/services/list-page.service';
 import { UsersDirectoryService } from '../shared/services/users-directory.service';
 import { MobileSelectComponent } from '../shared/forms/mobile-select.component';
+import { TagInputComponent } from '../shared/forms/tag-input.component';
+import { injectContactTagSuggestions } from './contact-tag-suggestions';
 import { ColumnFilterComponent } from '../shared/table-filters/column-filter.component';
 import type { ColumnFilterOption } from '../shared/table-filters/column-filter.types';
 import { extractApiError } from '@core/services/api-error.util';
@@ -78,6 +80,7 @@ class ContactsListState extends ListPageState<ContactListItem> {}
     ColumnFilterComponent,
     EmptyStateComponent,
     MobileSelectComponent,
+    TagInputComponent,
   ],
   providers: [ContactsListState],
   templateUrl: './contacts-list.page.html',
@@ -252,7 +255,14 @@ export class ContactsListPageComponent {
 
   // --- Multi-select + bulk actions -------------------------------------------
 
-  readonly tagInputControl = new FormControl<string>('', { nonNullable: true });
+  /** Bulk "Tags…" modal: add or remove the chosen tags on every selected row. */
+  readonly bulkTagMode = signal<'add' | 'remove'>('add');
+  protected readonly bulkTagModes = [
+    { value: 'add', label: 'Add', icon: 'plus' },
+    { value: 'remove', label: 'Remove', icon: 'minus' },
+  ] as const;
+  readonly bulkTagsControl = new FormControl<string[]>([], { nonNullable: true });
+  protected readonly tagVocabulary = injectContactTagSuggestions();
 
   /** CSV export progress (single in-flight at a time). */
   readonly exporting = signal(false);
@@ -346,7 +356,7 @@ export class ContactsListPageComponent {
         icon: 'user-cog',
         permissionKey: 'contacts.reassign',
       },
-      { key: 'tag', label: 'Add tag', icon: 'tag', permissionKey: 'contacts.write' },
+      { key: 'tag', label: 'Tags…', icon: 'tag', permissionKey: 'contacts.write' },
       {
         key: 'delete',
         label: 'Delete',
@@ -757,12 +767,13 @@ export class ContactsListPageComponent {
     this.state.bulkError.set(null);
     if (key === 'reassign') this.state.bulkModal.set('reassign');
     else if (key === 'tag') {
-      this.tagInputControl.setValue('');
+      this.bulkTagMode.set('add');
+      this.bulkTagsControl.setValue([]);
       this.state.bulkModal.set('tag');
     } else if (key === 'delete') this.state.bulkModal.set('delete');
   }
 
-  /** Esc closes the page's own bulk "Add tag" modal. (The reassign /
+  /** Esc closes the page's own bulk "Tags…" modal. (The reassign /
    *  delete dialogs and the contact form handle their own keys.) */
   @HostListener('document:keydown.escape')
   protected onEscape(): void {
@@ -821,27 +832,28 @@ export class ContactsListPageComponent {
       });
   }
 
-  protected onBulkAddTag(): void {
-    const tag = this.tagInputControl.value.trim();
-    if (!tag) {
-      this.state.bulkError.set('Enter a tag.');
+  protected onBulkTags(): void {
+    const tags = this.bulkTagsControl.value;
+    if (tags.length === 0) {
+      this.state.bulkError.set('Pick at least one tag.');
       return;
     }
     const ids = [...this.state.selectedIds()];
     if (ids.length === 0) return;
+    const adding = this.bulkTagMode() === 'add';
     this.state.bulkSubmitting.set(true);
     this.state.bulkError.set(null);
     this.api
-      .bulkAddTag(ids, tag)
+      .bulkTags(ids, adding ? { add: tags } : { remove: tags })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (resp) => {
-          this.toast.success(`Tagged ${this.contactCount(resp.updated)} with “${tag}”`, {
-            subtitle:
-              resp.updated < ids.length
-                ? 'Contacts that already had this tag were skipped.'
-                : undefined,
-          });
+          this.toast.success(
+            adding
+              ? `Tagged ${this.contactCount(resp.updated)}`
+              : `Removed tags from ${this.contactCount(resp.updated)}`,
+            { subtitle: this.bulkTagsNote(adding, ids.length, resp) },
+          );
           this.state.bulkSubmitting.set(false);
           this.clearSelection();
           this.closeBulkModal();
@@ -850,9 +862,28 @@ export class ContactsListPageComponent {
         },
         error: (err: HttpErrorResponse) => {
           this.state.bulkSubmitting.set(false);
-          this.state.bulkError.set(extractApiError(err) ?? 'Could not add tag.');
+          this.state.bulkError.set(extractApiError(err) ?? 'Could not update tags.');
         },
       });
+  }
+
+  /** Toast subtitle explaining why fewer contacts changed than were selected. */
+  private bulkTagsNote(
+    adding: boolean,
+    selected: number,
+    resp: { updated: number; skipped_over_limit: number },
+  ): string | undefined {
+    const skipped = resp.skipped_over_limit;
+    if (skipped > 0) {
+      const verb = skipped === 1 ? 'was' : 'were';
+      return `${this.contactCount(skipped)} already had the maximum number of tags and ${verb} skipped.`;
+    }
+    if (resp.updated < selected) {
+      return adding
+        ? 'Contacts that already had these tags were unchanged.'
+        : 'Contacts without these tags were unchanged.';
+    }
+    return undefined;
   }
 
   private contactCount(n: number): string {

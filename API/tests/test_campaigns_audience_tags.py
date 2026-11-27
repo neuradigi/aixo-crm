@@ -1,6 +1,6 @@
 """Campaign audience `tags` / `exclude_tags` — any-of include, none-of
-exclude, legacy single `tag` still read, and every shape that could
-silently widen the audience to "everyone" is rejected instead."""
+exclude, and every shape that could silently widen the audience to
+"everyone" (including the retired single-value `tag` key) is rejected."""
 
 from __future__ import annotations
 
@@ -54,13 +54,6 @@ async def test_exclude_tags_alone_targets_everyone_else(test_db, seeded_admin):
 
 
 @pytest.mark.asyncio
-async def test_legacy_single_tag_is_still_read(test_db, seeded_admin):
-    ids = await _seed_contacts(seeded_admin["org"].id)
-    out = await resolve_audience(test_db, audience_filter={"tag": "sofa"})
-    assert set(out) == {ids["alice"], ids["bob"]}
-
-
-@pytest.mark.asyncio
 async def test_preview_and_dispatch_select_the_same_contacts(test_db, seeded_admin):
     await _seed_contacts(seeded_admin["org"].id)
     preview_rows, _ = await list_contacts(test_db, tags=["sofa", "chair"], size=100)
@@ -68,10 +61,20 @@ async def test_preview_and_dispatch_select_the_same_contacts(test_db, seeded_adm
     assert {c.id for c in preview_rows} == set(dispatch_ids)
 
 
+@pytest.mark.asyncio
+async def test_preview_and_dispatch_agree_on_excluded_tags(test_db, seeded_admin):
+    await _seed_contacts(seeded_admin["org"].id)
+    preview_rows, _ = await list_contacts(test_db, tags=["sofa"], exclude_tags=["vip"], size=100)
+    dispatch_ids = await resolve_audience(
+        test_db, audience_filter={"tags": ["sofa"], "exclude_tags": ["vip"]}
+    )
+    assert {c.id for c in preview_rows} == set(dispatch_ids)
+
+
 @pytest.mark.parametrize(
     "payload",
     [
-        {"tag": "sofa", "tags": ["chair"]},  # ambiguous include
+        {"tag": "sofa"},  # retired key (migration 0244) is now unknown
         {"tags": []},  # empty list must never mean "no filter"
         {"exclude_tags": []},
         {"tags": ["   "]},  # blank tag rejected, not dropped
@@ -84,9 +87,3 @@ async def test_preview_and_dispatch_select_the_same_contacts(test_db, seeded_adm
 def test_shapes_that_could_widen_the_audience_are_rejected(payload):
     with pytest.raises(ValidationError):
         AudienceFilter.model_validate(payload)
-
-
-def test_legacy_tag_is_stored_as_sent():
-    # Release 1 must keep writing the shape pre-release code understands.
-    dumped = AudienceFilter(tag="sofa").model_dump(exclude_none=True, mode="json")
-    assert dumped == {"tag": "sofa"}

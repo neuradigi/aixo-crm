@@ -24,14 +24,14 @@ class TestAudienceFilterModes:
         af = AudienceFilter()
         assert af.q is None
         assert af.source is None
-        assert af.tag is None
+        assert af.tags is None
         assert af.group_id is None
 
     def test_filter_only(self):
-        af = AudienceFilter(q="ash", source="walk-in", tag="vip")
+        af = AudienceFilter(q="ash", source="walk-in", tags=["vip"])
         assert af.q == "ash"
         assert af.source == "walk-in"
-        assert af.tag == "vip"
+        assert af.tags == ["vip"]
         assert af.group_id is None
 
     def test_group_id_only(self):
@@ -40,7 +40,7 @@ class TestAudienceFilterModes:
         assert af.group_id == gid
         assert af.q is None
         assert af.source is None
-        assert af.tag is None
+        assert af.tags is None
 
     def test_filter_plus_group_id_rejected(self):
         """Mixing a filter field with `group_id` is the one combination
@@ -48,7 +48,7 @@ class TestAudienceFilterModes:
         call could, so the schema rejects it to keep dispatch's
         resolution path unambiguous."""
         with pytest.raises(ValidationError, match="exactly one of"):
-            AudienceFilter(tag="vip", group_id=uuid.uuid4())
+            AudienceFilter(tags=["vip"], group_id=uuid.uuid4())
 
     def test_q_plus_group_id_rejected(self):
         with pytest.raises(ValidationError, match="exactly one of"):
@@ -67,8 +67,8 @@ class TestAudienceFilterModes:
         af = AudienceFilter(q="", source="", group_id=uuid.uuid4())
         assert af.group_id is not None
 
-    def test_empty_string_tag_is_rejected(self):
+    def test_blank_tag_is_rejected(self):
         """A blank tag is a validation error, never "no tag filter" —
         tasks/contact-tags-for-campaigns Decision 4."""
         with pytest.raises(ValidationError):
-            AudienceFilter(tag="", group_id=uuid.uuid4())
+            AudienceFilter(tags=[""], group_id=uuid.uuid4())

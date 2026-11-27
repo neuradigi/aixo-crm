@@ -15,15 +15,17 @@ of tags to include and to exclude from a searchable list with counts.
    element and no `exclude_tags` → `tag`; anything else keeps `tags` (Release 1 reads it).
 2. `campaigns/schemas.py` — remove `tag` and `effective_tags`.
 3. `campaigns/service.py` — pass `af.tags`.
-4. Contacts list: `exclude_tag` repeatable query param on list + export
-   (`contacts/router.py`, `contacts/service.py`, `contacts/data_access.py` callers of
-   `build_contact_filters`).
+4. Contacts list: `exclude_tag` repeatable query param on the list endpoint (the campaign
+   preview's query). Not on CSV export: it carries no lead filters either and no screen offers
+   an exclude-tag export.
 5. Frontend: `campaigns-api.service.ts` `AudienceFilter` gets `tags?` / `exclude_tags?`, loses
    `tag`; `create-campaign-modal.component.{ts,html}` — "Has any of these tags" and "Doesn't have
    any of these tags" chip pickers (`crm-mobile-select [pickToAdd] [searchable]`, options
    `"{tag} · {count}"` from `listTags`), preview sends `tag` / `exclude_tag`, save sends
    `tags` / `exclude_tags`; `campaigns.page.ts` audience summary lists both.
-6. Regenerate `shared/api-types/index.ts`.
+6. `shared/api-types/index.ts` is **not** regenerated here: the committed file predates many
+   server changes (a regeneration rewrites ~47k lines), and no screen reads `AudienceFilter` /
+   contact-tag types from it — they use the hand-written interfaces updated above.
 
 ## Tests
 

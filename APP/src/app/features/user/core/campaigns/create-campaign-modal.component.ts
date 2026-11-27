@@ -27,7 +27,11 @@ import { ToastService } from '@shared/components/toast/toast.service';
 import { FormToastHelper } from '../shared/forms/form-toast.helper';
 import { ConfirmDialogService } from '../shared/confirm-dialog/confirm-dialog.service';
 import { ContactGroup, ContactGroupsApiService } from '../contacts/groups/groups-api.service';
-import { ContactListItem, ContactsApiService } from '../contacts/contacts-api.service';
+import {
+  ContactListItem,
+  ContactTagOption,
+  ContactsApiService,
+} from '../contacts/contacts-api.service';
 import { PipelineStage, PipelinesApiService } from '../pipelines/pipelines-api.service';
 import { EmbedApiService, WidgetFormListItem } from '../settings/tabs/embed-api.service';
 import {
@@ -294,6 +298,43 @@ export class CreateCampaignModalComponent {
   protected readonly leadStatusFilter = signal<string[]>([]);
   protected readonly leadStageFilter = signal<string[]>([]);
   protected readonly leadSourceFilter = signal<string[]>([]);
+
+  /** Contact-tag filters: contacts carrying ANY of `includeTagFilter`,
+   *  minus contacts carrying ANY of `excludeTagFilter`. A tag sits in at
+   *  most one of the two lists. Options come from the org's tag
+   *  vocabulary (with contact counts), loaded the first time the
+   *  operator enters Custom-filter mode. */
+  protected readonly includeTagFilter = signal<string[]>([]);
+  protected readonly excludeTagFilter = signal<string[]>([]);
+  private readonly contactTags = signal<ContactTagOption[]>([]);
+  private contactTagsLoaded = false;
+  protected readonly contactTagOptions = computed<MobileSelectOption[]>(() =>
+    this.contactTags().map((t) => ({ value: t.tag, label: `${t.tag} · ${t.count}` })),
+  );
+
+  protected onAddIncludeTag(tag: string | null): void {
+    if (!tag || this.includeTagFilter().includes(tag)) return;
+    this.excludeTagFilter.update((prev) => prev.filter((t) => t !== tag));
+    this.includeTagFilter.update((prev) => [...prev, tag]);
+    this.audiencePreview$.next();
+  }
+
+  protected onAddExcludeTag(tag: string | null): void {
+    if (!tag || this.excludeTagFilter().includes(tag)) return;
+    this.includeTagFilter.update((prev) => prev.filter((t) => t !== tag));
+    this.excludeTagFilter.update((prev) => [...prev, tag]);
+    this.audiencePreview$.next();
+  }
+
+  protected removeIncludeTag(tag: string): void {
+    this.includeTagFilter.update((prev) => prev.filter((t) => t !== tag));
+    this.audiencePreview$.next();
+  }
+
+  protected removeExcludeTag(tag: string): void {
+    this.excludeTagFilter.update((prev) => prev.filter((t) => t !== tag));
+    this.audiencePreview$.next();
+  }
 
   /** Multi-form Step 7 — the org's live forms (loaded on demand the
    *  first time the operator enters Custom-filter mode) and the ids
@@ -604,12 +645,11 @@ export class CreateCampaignModalComponent {
    *  controls themselves aren't signals; without this bridge the
    *  ``canAdvance`` computed wouldn't invalidate on keystrokes. */
   protected readonly nameValue = signal<string>('');
-  /** Signal mirrors of the Custom-filter Search / Tag inputs. The gate
-   *  below used to read them via `form.getRawValue()` (not a signal), so
+  /** Signal mirror of the Custom-filter Search input. The gate below
+   *  used to read it via `form.getRawValue()` (not a signal), so
    *  clearing the only condition kept Next enabled — and the campaign
    *  saved with an empty filter, which the backend reads as EVERYONE. */
   protected readonly audienceQValue = signal<string>('');
-  protected readonly audienceTagValue = signal<string>('');
 
   /** Step 1 (Basics) is complete when the campaign has a name AND the
    *  audience selection is coherent — "Everyone" is always valid, a
@@ -629,7 +669,8 @@ export class CreateCampaignModalComponent {
     if (this.selectedContactMap().size > 0) return true;
     return Boolean(
       this.audienceQValue().trim() ||
-      this.audienceTagValue().trim() ||
+      this.includeTagFilter().length > 0 ||
+      this.excludeTagFilter().length > 0 ||
       this.leadStatusFilter().length > 0 ||
       this.leadStageFilter().length > 0 ||
       this.leadSourceFilter().length > 0 ||
@@ -786,7 +827,6 @@ export class CreateCampaignModalComponent {
       validators: [Validators.required],
     }),
     audience_q: this.fb.control<string | null>(null),
-    audience_tag: this.fb.control<string | null>(null),
     schedule_at: this.fb.control<string | null>(null),
     // Step 27b — multi-number Send-From selector. Null = use org
     // default. The dropdown self-hides when the org has < 2
@@ -970,12 +1010,6 @@ export class CreateCampaignModalComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((v) => {
         this.audienceQValue.set(v ?? '');
-        this.audiencePreview$.next();
-      });
-    this.form.controls.audience_tag.valueChanges
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe((v) => {
-        this.audienceTagValue.set(v ?? '');
         this.audiencePreview$.next();
       });
 
@@ -1206,10 +1240,9 @@ export class CreateCampaignModalComponent {
       this.selectedGroupId.set(null);
     }
     if (mode !== 'filter') {
-      this.form.patchValue({
-        audience_q: null,
-        audience_tag: null,
-      });
+      this.form.patchValue({ audience_q: null });
+      this.includeTagFilter.set([]);
+      this.excludeTagFilter.set([]);
       this.leadStatusFilter.set([]);
       this.leadStageFilter.set([]);
       this.leadSourceFilter.set([]);
@@ -1225,7 +1258,21 @@ export class CreateCampaignModalComponent {
       if (!this.widgetFormsLoaded) {
         this._loadWidgetForms();
       }
+      if (!this.contactTagsLoaded) {
+        this._loadContactTags();
+      }
     }
+  }
+
+  private _loadContactTags(): void {
+    this.contactTagsLoaded = true;
+    this.contactsApi
+      .listTags()
+      .pipe(
+        catchError(() => of({ tags: [] as ContactTagOption[] })),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((res) => this.contactTags.set(res.tags));
   }
 
   private _loadPipelineStages(): void {
@@ -1362,10 +1409,10 @@ export class CreateCampaignModalComponent {
   private _fetchAudiencePage(page: number) {
     const v = this.form.getRawValue();
     const q = v.audience_q?.trim() || undefined;
-    const tag = v.audience_tag?.trim() || undefined;
     return this.contactsApi.list({
       q,
-      tag: tag ? [tag] : undefined,
+      tag: this.includeTagFilter().length ? this.includeTagFilter() : undefined,
+      exclude_tag: this.excludeTagFilter().length ? this.excludeTagFilter() : undefined,
       lead_status: this.leadStatusFilter().length ? this.leadStatusFilter() : undefined,
       lead_stage: this.leadStageFilter().length ? this.leadStageFilter() : undefined,
       lead_source: this.leadSourceFilter().length ? this.leadSourceFilter() : undefined,
@@ -1617,7 +1664,7 @@ export class CreateCampaignModalComponent {
     // Audience serialization is mode-driven (Step 3.5.9):
     //   - everyone → empty object (backend interprets as "all contacts")
     //   - group    → { group_id }
-    //   - filter   → { q?, source?, tag? } (only fields with values)
+    //   - filter   → { q?, tags?, exclude_tags?, lead_*? } (only fields with values)
     // Mixing modes is impossible by construction here, and the
     // backend's AudienceFilter validator double-checks.
     const audience: AudienceFilter = {};
@@ -1637,7 +1684,8 @@ export class CreateCampaignModalComponent {
         audience.contact_ids = picked;
       } else {
         if (v.audience_q?.trim()) audience.q = v.audience_q.trim();
-        if (v.audience_tag?.trim()) audience.tag = v.audience_tag.trim();
+        if (this.includeTagFilter().length) audience.tags = this.includeTagFilter();
+        if (this.excludeTagFilter().length) audience.exclude_tags = this.excludeTagFilter();
         if (this.leadStatusFilter().length) audience.lead_status = this.leadStatusFilter();
         if (this.leadStageFilter().length) audience.lead_stage = this.leadStageFilter();
         if (this.leadSourceFilter().length) audience.lead_source = this.leadSourceFilter();

@@ -6,8 +6,6 @@ envelopes, common request/response shapes — lives here.
 
 from src.app.shared.schemas.base import ORMModel, TimestampedOrgScopedOut
 from src.app.shared.schemas.bulk_actions import (
-    BulkAddTag,
-    BulkAddTagResult,
     BulkDelete,
     BulkDeleteResult,
     BulkIds,
@@ -17,8 +15,6 @@ from src.app.shared.schemas.bulk_actions import (
 from src.app.shared.schemas.pagination import PaginatedResponse
 
 __all__ = [
-    "BulkAddTag",
-    "BulkAddTagResult",
     "BulkDelete",
     "BulkDeleteResult",
     "BulkIds",

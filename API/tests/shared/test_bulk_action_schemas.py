@@ -6,7 +6,6 @@ list-page bulk endpoints share:
 - ``ids`` is required, non-empty, capped at 200.
 - ``BulkReassign.assigned_to_id`` is optional (``None`` clears the
   owner for entities that allow it).
-- ``BulkAddTag.tag`` is a non-empty string ≤ 64 chars.
 
 Also verifies that the per-entity aliases (``ContactBulkReassign``,
 ``LeadBulkReassign``, ``TaskBulkReassign``) resolve to the same
@@ -22,8 +21,6 @@ import pytest
 from pydantic import ValidationError
 
 from src.app.shared.schemas import (
-    BulkAddTag,
-    BulkAddTagResult,
     BulkDelete,
     BulkDeleteResult,
     BulkReassign,
@@ -68,26 +65,6 @@ def test_bulk_delete_valid_payload() -> None:
     assert len(payload.ids) == 1
 
 
-# --- BulkAddTag ----------------------------------------------------------
-
-
-def test_bulk_add_tag_valid_payload() -> None:
-    payload = BulkAddTag(ids=[uuid.uuid4()], tag="vip")
-    assert payload.tag == "vip"
-
-
-def test_bulk_add_tag_rejects_empty_tag() -> None:
-    with pytest.raises(ValidationError):
-        BulkAddTag(ids=[uuid.uuid4()], tag="")
-
-
-def test_bulk_add_tag_tag_max_length() -> None:
-    """64-char cap matches the contacts module's ``_TAG_MAX``."""
-    BulkAddTag(ids=[uuid.uuid4()], tag="x" * 64)
-    with pytest.raises(ValidationError):
-        BulkAddTag(ids=[uuid.uuid4()], tag="x" * 65)
-
-
 # --- ids constraints (shared via BulkIds base) --------------------------
 
 
@@ -95,11 +72,6 @@ def test_bulk_add_tag_tag_max_length() -> None:
 def test_ids_must_be_non_empty(schema_cls) -> None:
     with pytest.raises(ValidationError):
         schema_cls(ids=[])
-
-
-def test_bulk_add_tag_ids_must_be_non_empty() -> None:
-    with pytest.raises(ValidationError):
-        BulkAddTag(ids=[], tag="vip")
 
 
 def test_ids_capped_at_200() -> None:
@@ -117,7 +89,6 @@ def test_ids_capped_at_200() -> None:
 def test_result_envelopes() -> None:
     assert BulkReassignResult(reassigned=3).reassigned == 3
     assert BulkDeleteResult(deleted=5).deleted == 5
-    assert BulkAddTagResult(updated=7).updated == 7
 
 
 # --- Per-entity aliases resolve to the shared classes -------------------
@@ -129,7 +100,6 @@ def test_aliases_resolve_to_shared_classes() -> None:
     is uniform across the three list pages."""
 
     from src.app.core.contacts.schemas import (
-        ContactBulkAddTag,
         ContactBulkDelete,
         ContactBulkReassign,
     )
@@ -143,5 +113,3 @@ def test_aliases_resolve_to_shared_classes() -> None:
     assert ContactBulkDelete is BulkDelete
     assert LeadBulkDelete is BulkDelete
     assert TaskBulkDelete is BulkDelete
-
-    assert ContactBulkAddTag is BulkAddTag

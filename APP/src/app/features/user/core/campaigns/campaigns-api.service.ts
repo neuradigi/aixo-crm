@@ -20,7 +20,10 @@ export type CampaignMessageStatus =
 export interface AudienceFilter {
   q?: string;
   source?: string;
-  tag?: string;
+  /** Contacts carrying ANY of these tags. */
+  tags?: string[];
+  /** Drop contacts carrying ANY of these tags. */
+  exclude_tags?: string[];
   /** Restrict to contacts with at least one Lead whose ``status`` /
    *  pipeline-stage / ``source`` sits in the given set. Each field is
    *  OR-within, AND-across — mirrors the ``/contacts?lead_*=…`` list

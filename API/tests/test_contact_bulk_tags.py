@@ -1,7 +1,6 @@
 """Bulk and automated tagging go through the contacts tag-delta service
 (tasks/contact-tags-for-campaigns Step 4): `POST /contacts/bulk-tags`,
-the legacy `bulk-add-tag` route, the chatbot Add-Tag node and the
-workflow tagging actions all publish `contact.tag_*` events per real
+the chatbot Add-Tag node and the workflow tagging actions all publish `contact.tag_*` events per real
 change and respect the 32-tag cap."""
 
 from __future__ import annotations
@@ -84,17 +83,6 @@ async def test_bulk_skips_over_limit_anonymised_and_foreign_contacts(
     )
     assert staged.skipped_over_limit == [full]
     assert [d.contact_id for d in staged.diffs] == [ok]
-
-
-@pytest.mark.asyncio
-async def test_legacy_bulk_add_tag_counts_contacts_changed(test_db, seeded_admin, published):
-    org_id = seeded_admin["org"].id
-    a = await _seed(org_id, [])
-    b = await _seed(org_id, ["vip"])
-    updated = await contacts_service.bulk_add_tag_contacts(
-        test_db, ids=[a, b], tag="vip", org_id=org_id
-    )
-    assert updated == 1
 
 
 def test_bulk_payload_needs_a_change():
