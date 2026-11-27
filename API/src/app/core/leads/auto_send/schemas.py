@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -23,3 +24,5 @@ class AutoSendSummary(BaseModel):
     due_at: datetime | None
     reason: str | None
     created_by_id: uuid.UUID
+    # For a sent message: how far it got, from the provider's receipts.
+    delivery: Literal["delivered", "read"] | None = None

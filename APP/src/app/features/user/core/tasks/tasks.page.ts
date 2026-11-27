@@ -18,6 +18,8 @@ import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
 import { environment } from '../../../../../environments/environment';
 import { FurnitureAuthService } from '../auth/auth.service';
+import { AutoSendBadgeComponent } from '../leads/auto-send-badge.component';
+import { AutoSendSummary } from '../leads/leads-api.service';
 import { ToastService } from '../../../../shared/components/toast/toast.service';
 import { BulkActionBarComponent } from '../shared/bulk-action-bar/bulk-action-bar.component';
 import { ConfirmDialogComponent } from '../shared/confirm-dialog/confirm-dialog.component';
@@ -108,6 +110,7 @@ const STATUS_CHIPS: readonly ChipDef[] = [
     MobileSelectComponent,
     RouterLink,
     EmptyStateComponent,
+    AutoSendBadgeComponent,
   ],
   providers: [TasksListState],
   templateUrl: './tasks.page.html',
@@ -1000,6 +1003,12 @@ export class TasksPageComponent {
     if (this.activeChip() === c.key) return 'opacity-80';
     if (c.key === 'overdue' && n.overdue > 0) return 'text-red-600 dark:text-red-400';
     return 'text-faint';
+  }
+
+  protected onAutoSendChanged(autoSend: AutoSendSummary): void {
+    this.state.items.update((rows) =>
+      rows.map((r) => (r.id === autoSend.task_id ? { ...r, auto_send: autoSend } : r)),
+    );
   }
 
   protected retry(): void {

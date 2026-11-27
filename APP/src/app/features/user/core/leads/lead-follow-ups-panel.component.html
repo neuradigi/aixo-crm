@@ -89,6 +89,13 @@
                 </td>
                 <td class="py-2 pr-3 text-default">
                   <div class="line-clamp-2">{{ t.title }}</div>
+                  @if (t.auto_send; as autoSend) {
+                    <app-auto-send-badge
+                      class="mt-1 block"
+                      [autoSend]="autoSend"
+                      (changed)="onAutoSendChanged($event)"
+                    />
+                  }
                   @if (rowErr) {
                     <p class="mt-1 text-[11px] text-red-500">{{ rowErr }}</p>
                   }

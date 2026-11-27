@@ -68,8 +68,16 @@ def _reject(status_code: int, error: str, message: str, **extra: object) -> HTTP
     )
 
 
-def summarize(row: FollowUpAutoSend, due_at: datetime | None) -> AutoSendSummary:
+def summarize(
+    row: FollowUpAutoSend,
+    due_at: datetime | None,
+    *,
+    delivered_at: datetime | None = None,
+    read_at: datetime | None = None,
+) -> AutoSendSummary:
+    delivery = "read" if read_at else "delivered" if delivered_at else None
     return AutoSendSummary(
+        delivery=delivery,
         id=row.id,
         task_id=row.task_id,
         lead_id=row.lead_id,
@@ -331,7 +339,10 @@ async def summaries_for_tasks(
 ) -> dict[uuid.UUID, AutoSendSummary]:
     """Auto-send summary per task id for a list page — one query."""
     rows = await auto_send_da.list_auto_sends_for_tasks(session, org_id=org_id, task_ids=task_ids)
-    return {row.task_id: summarize(row, due_at) for row, due_at in rows}
+    return {
+        row.task_id: summarize(row, due_at, delivered_at=delivered_at, read_at=read_at)
+        for row, due_at, delivered_at, read_at in rows
+    }
 
 
 async def cancel_auto_send(

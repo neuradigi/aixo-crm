@@ -187,6 +187,8 @@ export interface AutoSendSummary {
   due_at: string | null;
   reason: string | null;
   created_by_id: string;
+  /** For a sent message: how far it got, from the provider's receipts. */
+  delivery?: 'delivered' | 'read' | null;
 }
 
 /** Payload for ``POST /leads/{id}/log-update``. Mirrors the backend
@@ -423,6 +425,11 @@ export class LeadsApiService extends BaseCrudApiService<Lead, LeadCreate, LeadUp
    *  leads), or null. */
   getPendingAutoSend(leadId: string): Observable<AutoSendSummary | null> {
     return this.http.get<AutoSendSummary | null>(`${this.base}/${leadId}/auto-send`);
+  }
+
+  /** Cancel a scheduled auto-message; returns it in its new state. */
+  cancelAutoSend(autoSendId: string): Observable<AutoSendSummary> {
+    return this.http.post<AutoSendSummary>(`${this.base}/auto-sends/${autoSendId}/cancel`, {});
   }
 
   /** F4 — Bulk move-stage. Moves every id to the same `to_stage`;

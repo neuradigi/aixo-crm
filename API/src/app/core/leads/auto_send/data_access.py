@@ -112,17 +112,19 @@ async def get_auto_send(
 
 async def list_auto_sends_for_tasks(
     session: AsyncSession, *, org_id: uuid.UUID, task_ids: list[uuid.UUID]
-) -> list[tuple[FollowUpAutoSend, datetime | None]]:
+) -> list[tuple[FollowUpAutoSend, datetime | None, datetime | None, datetime | None]]:
     """Every auto-send attached to ``task_ids`` (at most one per task),
-    with the task's live ``due_at`` — one query for a whole list page."""
+    with the task's live ``due_at`` and the sent message's
+    ``delivered_at`` / ``read_at`` — one query for a whole list page."""
     if not task_ids:
         return []
     result = await session.execute(
-        select(FollowUpAutoSend, Task.due_at)
+        select(FollowUpAutoSend, Task.due_at, Message.delivered_at, Message.read_at)
         .join(Task, Task.id == FollowUpAutoSend.task_id)
+        .outerjoin(Message, Message.id == FollowUpAutoSend.message_id)
         .where(FollowUpAutoSend.org_id == org_id, FollowUpAutoSend.task_id.in_(task_ids))
     )
-    return [(row, due_at) for row, due_at in result.all()]
+    return [tuple(r) for r in result.all()]
 
 
 async def cancel_scheduled_for_dead_tasks(session: AsyncSession, *, now: datetime) -> int:

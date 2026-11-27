@@ -223,6 +223,14 @@
                 <p class="mt-1 line-clamp-2 text-xs text-muted">“{{ row.notes_preview }}”</p>
               }
 
+              @if (row.auto_send; as autoSend) {
+                <app-auto-send-badge
+                  class="mt-1 block"
+                  [autoSend]="autoSend"
+                  (changed)="onAutoSendChanged($event)"
+                />
+              }
+
               @if (reschedulingId() === row.id) {
                 <div class="mt-2">
                   <app-reschedule-inline

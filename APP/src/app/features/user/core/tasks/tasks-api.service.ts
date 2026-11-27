@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../../../environments/environment';
+import { AutoSendSummary } from '../leads/leads-api.service';
 import { FieldDef } from '../shared/dynamic-form/types';
 import { buildHttpParams } from '../shared/services/query-builder';
 
@@ -75,6 +76,8 @@ export interface Task {
   last_activity_at: string | null;
   /** T4 — dynamic per-org custom field payload. */
   custom_data: Record<string, unknown>;
+  /** The follow-up's latest auto-message (list endpoints only). */
+  auto_send?: AutoSendSummary | null;
   created_at: string;
   updated_at: string;
 }

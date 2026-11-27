@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { environment } from '../../../../../../environments/environment';
+import { AutoSendSummary } from '../../leads/leads-api.service';
 import { buildHttpParams } from '../../shared/services/query-builder';
 
 /** Mirrors `FollowupBucket` on the backend (`core/dashboard/schemas.py`). */
@@ -46,6 +47,8 @@ export interface FollowupItem {
   notes_preview: string | null;
   assigned_to: FollowupAssignedTo;
   linked_entity: FollowupLinkedEntity | null;
+  /** The follow-up's latest auto-message, if one was ever scheduled. */
+  auto_send?: AutoSendSummary | null;
 }
 
 export interface FollowupsResponse {

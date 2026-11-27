@@ -33,6 +33,8 @@ import { LucideAngularModule } from 'lucide-angular';
 import { extractApiError } from '@core/services/api-error.util';
 import { MobileDateTimeComponent } from '../shared/forms/mobile-datetime.component';
 import { Task, TaskFollowupType, TasksApiService } from '../tasks/tasks-api.service';
+import { AutoSendBadgeComponent } from './auto-send-badge.component';
+import { AutoSendSummary } from './leads-api.service';
 
 interface FollowupTypeMeta {
   icon: string;
@@ -55,7 +57,7 @@ const TYPE_META: Record<TaskFollowupType, FollowupTypeMeta> = {
   selector: 'app-lead-follow-ups-panel',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [LucideAngularModule, MobileDateTimeComponent],
+  imports: [LucideAngularModule, MobileDateTimeComponent, AutoSendBadgeComponent],
   templateUrl: './lead-follow-ups-panel.component.html',
 })
 export class LeadFollowUpsPanelComponent implements OnInit {
@@ -137,6 +139,13 @@ export class LeadFollowUpsPanelComponent implements OnInit {
   reload(): void {
     this.page.set(1);
     this.load(1);
+  }
+
+  protected onAutoSendChanged(autoSend: AutoSendSummary): void {
+    this.tasks.update((rows) =>
+      rows.map((r) => (r.id === autoSend.task_id ? { ...r, auto_send: autoSend } : r)),
+    );
+    this.cdr.detectChanges();
   }
 
   protected loadMore(): void {
@@ -240,7 +249,18 @@ export class LeadFollowUpsPanelComponent implements OnInit {
           this.rescheduling.set(null);
           this.rescheduleDraft.set('');
           this.tasks.update((rows) =>
-            rows.map((r) => (r.id === updated.id ? updated : r)).sort(this._compareDueAt),
+            rows
+              .map((r) =>
+                // The PATCH response has no auto_send; an accepted reschedule
+                // moves a pending auto-message with the follow-up.
+                r.id === updated.id
+                  ? {
+                      ...updated,
+                      auto_send: r.auto_send && { ...r.auto_send, due_at: updated.due_at },
+                    }
+                  : r,
+              )
+              .sort(this._compareDueAt),
           );
           this.cdr.detectChanges();
         },

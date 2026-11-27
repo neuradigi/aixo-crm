@@ -22,6 +22,8 @@ import { format } from 'date-fns';
 import { ToastService } from '../../../../../shared/components/toast/toast.service';
 
 import { ConfirmDialogComponent } from '../../shared/confirm-dialog/confirm-dialog.component';
+import { AutoSendBadgeComponent } from '../../leads/auto-send-badge.component';
+import { AutoSendSummary } from '../../leads/leads-api.service';
 import { RescheduleInlineComponent } from './reschedule-inline.component';
 import {
   FollowupBucket,
@@ -86,6 +88,7 @@ const PRIORITY_LABELS: Record<FollowupPriority, { label: string; dot: string; te
     RouterLink,
     RescheduleInlineComponent,
     ConfirmDialogComponent,
+    AutoSendBadgeComponent,
   ],
   templateUrl: './todays-followups.component.html',
 })
@@ -411,6 +414,18 @@ export class TodaysFollowupsComponent {
           });
         },
       });
+  }
+
+  protected onAutoSendChanged(autoSend: AutoSendSummary): void {
+    this.response.update(
+      (resp) =>
+        resp && {
+          ...resp,
+          items: resp.items.map((i) =>
+            i.id === autoSend.task_id ? { ...i, auto_send: autoSend } : i,
+          ),
+        },
+    );
   }
 
   protected refresh(): void {

@@ -307,6 +307,13 @@
             }
             <span class="text-[11px]" [class]="dueClass(t)"> Due: {{ formatDue(t.due_at) }} </span>
           </div>
+          @if (t.auto_send; as autoSend) {
+            <app-auto-send-badge
+              class="mt-1.5 block pl-11"
+              [autoSend]="autoSend"
+              (changed)="onAutoSendChanged($event)"
+            />
+          }
 
           <!-- Description if present -->
           @if (t.description) {
@@ -542,6 +549,13 @@
                 </div>
                 @if (t.description) {
                   <p class="mt-0.5 truncate text-[11px] text-muted">{{ t.description }}</p>
+                }
+                @if (t.auto_send; as autoSend) {
+                  <app-auto-send-badge
+                    class="mt-1 block"
+                    [autoSend]="autoSend"
+                    (changed)="onAutoSendChanged($event)"
+                  />
                 }
               </td>
               <td class="px-3 py-2">
