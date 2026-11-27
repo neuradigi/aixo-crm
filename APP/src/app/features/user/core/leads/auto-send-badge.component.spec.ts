@@ -81,13 +81,14 @@ describe('AutoSendBadgeComponent', () => {
 
   it('shows how far a sent message got', () => {
     setup({ ...base, status: 'sent', delivery: 'read' });
-    expect(text()).toContain('Auto-message sent · Read');
+    expect(text()).toContain('Sent · Read');
+    expect(text()).toContain('Following up');
     expect(cancelButton()).toBeNull();
   });
 
   it('explains why a message was not sent', () => {
     setup({ ...base, status: 'skipped', reason: 'opted_out' });
-    expect(text()).toContain('Auto-message not sent');
+    expect(text()).toContain('Not sent');
     expect(text()).toContain('the contact opted out');
   });
 

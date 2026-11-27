@@ -13,7 +13,8 @@ from src.app.core.leads.auto_send.models import FollowUpAutoSendChannel, FollowU
 
 class AutoSendSummary(BaseModel):
     """What a follow-up list / the Update Status modal shows about one
-    auto-send. ``due_at`` is the task's live due time (the send time)."""
+    auto-send. ``due_at`` is when it sends: its own ``send_at`` if one was
+    picked, else the follow-up's live due time."""
 
     id: uuid.UUID
     task_id: uuid.UUID

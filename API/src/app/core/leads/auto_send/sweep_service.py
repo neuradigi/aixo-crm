@@ -44,7 +44,7 @@ from src.app.core.conversations.template_send_service import (
 )
 from src.app.core.leads.auto_send import data_access as auto_send_da
 from src.app.core.leads.auto_send.models import FollowUpAutoSend, FollowUpAutoSendStatus
-from src.app.core.leads.auto_send.service import housekeep
+from src.app.core.leads.auto_send.service import housekeep, send_time
 from src.app.core.leads.models import Lead, LeadStatus
 from src.app.core.notifications.service import notify
 from src.app.core.permissions.service import role_has_permission
@@ -195,7 +195,8 @@ async def _send_time_verdict(
         return _Verdict("cancel", "follow_up_undated")
     if task.followup_type is None or task.followup_type.value != row.channel.value:
         return _Verdict("cancel", "follow_up_retyped")
-    due_at = task.due_at if task.due_at.tzinfo else task.due_at.replace(tzinfo=UTC)
+    when = send_time(row, task.due_at)
+    due_at = when if when.tzinfo else when.replace(tzinfo=UTC)
     if due_at > now:
         return _Verdict("release")  # rescheduled later after the claim
     if now - due_at > MAX_LATENESS:

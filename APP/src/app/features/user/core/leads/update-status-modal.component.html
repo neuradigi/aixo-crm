@@ -310,6 +310,7 @@
               [contact]="contact()"
               [channel]="autoSendChannel()"
               [dueAt]="form.controls.next_follow_up_at.value"
+              [minAt]="followUpMin"
               [serverError]="autoSendError()"
               [(choice)]="autoSendChoice"
             />

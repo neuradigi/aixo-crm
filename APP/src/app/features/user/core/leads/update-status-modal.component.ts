@@ -325,7 +325,7 @@ export class UpdateStatusModalComponent {
       // Picking a template is a change even when no form field moved.
       !(this.isFormDirty() || !!this.autoSendChoice()) ||
       this.stageDriftedTo() !== null ||
-      (this.showAutoSend() && !!this.autoSendChoice()?.decisionPending),
+      (this.showAutoSend() && !!this.autoSendChoice()?.needsInput),
   );
 
   /** Captured on open. Sent as ``if_current_stage`` so the backend
@@ -548,6 +548,7 @@ export class UpdateStatusModalComponent {
       if (this.showAutoSend() && autoSend) {
         payload.next_follow_up.auto_send_template_id = autoSend.templateId;
         payload.next_follow_up.replace_existing_auto_send = autoSend.replace;
+        payload.next_follow_up.auto_send_at = autoSend.sendAt;
       }
     }
     if (this.stageIsLost()) {

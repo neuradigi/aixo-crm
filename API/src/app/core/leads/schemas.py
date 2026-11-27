@@ -175,6 +175,9 @@ class NextFollowUpSpec(BaseModel):
     # Cancel the person's existing pending auto-send and schedule this
     # one instead (otherwise 409 `auto_send_exists`).
     replace_existing_auto_send: bool = False
+    # When the auto-message goes. Omitted = at the follow-up time (and it
+    # moves when the follow-up is rescheduled).
+    auto_send_at: datetime | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -194,6 +197,8 @@ class NextFollowUpSpec(BaseModel):
                 f"due_at must be within {_FOLLOWUP_LOOKBACK_DAYS} days in the past "
                 f"and {_FOLLOWUP_LOOKAHEAD_DAYS} days in the future"
             )
+        if self.auto_send_at is not None and self.auto_send_template_id is None:
+            raise ValueError("auto_send_at needs auto_send_template_id")
         return self
 
 

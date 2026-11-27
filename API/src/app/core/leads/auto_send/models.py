@@ -107,6 +107,9 @@ class FollowUpAutoSend(Base, TenantScoped):
     # send time skips the send (`recipient_changed`) instead of messaging
     # whoever the contact now points at.
     recipient: Mapped[str] = mapped_column(String(320), nullable=False)
+    # A fixed send time picked in the Update Status modal. NULL sends at
+    # the follow-up's live due time (and moves when it is rescheduled).
+    send_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[FollowUpAutoSendStatus] = mapped_column(
         follow_up_auto_send_status_enum,
         nullable=False,

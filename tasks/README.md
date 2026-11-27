@@ -32,7 +32,7 @@ normative: the `tbl_` naming map, now at [`API/docs/TABLE_NAMING_MAP.md`](../API
 | Track | Steps | Last touched | What it is |
 |---|---|---|---|
 | [contact-tags-for-campaigns](contact-tags-for-campaigns/README.md) | 8 | 2026-11-27 | Tag picker, include/exclude tags in campaigns, one tag-change path, tag editors on lead / inbox / contact screens |
-| [follow-up-auto-send](follow-up-auto-send/README.md) | 9 | 2026-11-27 | Send a saved WhatsApp/email template when a lead follow-up comes due; reply auto-cancel; due-time reminders |
+| [follow-up-auto-send](follow-up-auto-send/README.md) | 11 | 2026-11-27 | Send a saved WhatsApp/email template when a lead follow-up comes due; reply auto-cancel; due-time reminders |
 | [r2-storage](r2-storage/README.md) | 10 | 2026-09-29 | Move uploaded files from `./storage` to Cloudflare R2 (private bucket per env, API-streamed `/files`) |
 | [custom-events](custom-events/README.md) | 18 | 2026-09-11 | User-defined event triggers for workflows and templates; public `POST /events/track` folded into `core/public_ingest/` |
 | [variables-unification](variables-unification/README.md) | 13 | 2026-09-11 | One variable registry behind every template / workflow / chatbot / automation-condition picker |

@@ -2068,6 +2068,7 @@ async def log_update_for_lead(
             actor_id=actor_id,
             lead_closing=lead_closing,
             replace=payload.next_follow_up.replace_existing_auto_send,
+            send_at=payload.next_follow_up.auto_send_at,
         )
 
     # 8. Single commit + refresh.

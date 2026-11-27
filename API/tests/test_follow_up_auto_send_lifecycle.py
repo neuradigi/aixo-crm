@@ -34,8 +34,9 @@ class _Session:
         self.commits += 1
 
 
-def _row(status=FollowUpAutoSendStatus.scheduled):
+def _row(status=FollowUpAutoSendStatus.scheduled, send_at=None):
     return SimpleNamespace(
+        send_at=send_at,
         id=uuid.uuid4(),
         task_id=uuid.uuid4(),
         lead_id=uuid.uuid4(),
@@ -178,6 +179,16 @@ async def test_guard_refuses_quiet_hours_for_the_templates_category(world):
 @pytest.mark.asyncio
 async def test_guard_allows_a_future_time(world):
     await _guard(datetime.now(UTC) + timedelta(days=2))
+
+
+@pytest.mark.asyncio
+async def test_guard_lets_a_message_with_its_own_time_keep_it(world):
+    world["row"] = _row(send_at=datetime.now(UTC) + timedelta(hours=3))
+    world["quiet"] = True
+    await _guard(datetime.now(UTC) - timedelta(days=3))  # the follow-up may move anywhere
+    with pytest.raises(HTTPException) as exc:
+        await _guard(None)
+    assert exc.value.detail["error"] == "auto_send_due_required"
 
 
 @pytest.mark.asyncio

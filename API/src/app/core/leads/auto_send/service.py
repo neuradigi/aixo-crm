@@ -68,6 +68,11 @@ def _reject(status_code: int, error: str, message: str, **extra: object) -> HTTP
     )
 
 
+def send_time(row: FollowUpAutoSend, task_due_at: datetime | None) -> datetime | None:
+    """When ``row`` sends: its fixed ``send_at``, else the follow-up's due time."""
+    return row.send_at or task_due_at
+
+
 def summarize(
     row: FollowUpAutoSend,
     due_at: datetime | None,
@@ -109,9 +114,11 @@ async def stage_auto_send(
     actor_id: uuid.UUID,
     lead_closing: bool,
     replace: bool,
+    send_at: datetime | None = None,
 ) -> StagedAutoSend:
     """Validate and stage an auto-send for ``task`` (a freshly inserted
-    lead follow-up). Flushes, never commits."""
+    lead follow-up), sent at ``send_at`` or, when that is None, at the
+    follow-up's due time. Flushes, never commits."""
     channel = _CHANNEL_BY_FOLLOWUP_TYPE.get(task.followup_type) if task.followup_type else None
     if channel is None:
         raise _reject(
@@ -138,9 +145,16 @@ async def stage_auto_send(
         )
 
     now = datetime.now(UTC)
-    due_at = task.due_at if task.due_at.tzinfo else task.due_at.replace(tzinfo=UTC)
+    when = send_at or task.due_at
+    due_at = when if when.tzinfo else when.replace(tzinfo=UTC)
     if due_at < now - AUTO_SEND_PAST_GRACE:
-        raise _reject(422, "auto_send_past_due", "Pick a follow-up time in the future.")
+        raise _reject(
+            422,
+            "auto_send_past_due",
+            "Pick a send time in the future."
+            if send_at
+            else "Pick a follow-up time in the future.",
+        )
     if due_at > now + AUTO_SEND_HORIZON:
         raise _reject(
             422,
@@ -246,6 +260,7 @@ async def stage_auto_send(
             template_name=template.name,
             channel=channel,
             recipient=address,
+            send_at=due_at if send_at else None,
             created_by_id=actor_id,
         ),
     )
@@ -400,7 +415,7 @@ async def cancel_auto_send(
             body=f"“{row.template_name}” on a follow-up was cancelled by a colleague.",
             payload={"lead_id": str(row.lead_id), "auto_send_id": str(row.id)},
         )
-    return summarize(row, task.due_at)
+    return summarize(row, send_time(row, task.due_at))
 
 
 async def guard_reschedule(
@@ -409,7 +424,8 @@ async def guard_reschedule(
     """Refuse moving a follow-up that has a scheduled auto-message to a
     time the message couldn't go out at. Called by the tasks service
     before it writes a new ``due_at``; a task without a pending
-    auto-send is never blocked."""
+    auto-send is never blocked, and one whose auto-send has its own
+    fixed time is only stopped from losing its date."""
     row = await auto_send_da.get_auto_send_for_task(session, org_id=org_id, task_id=task_id)
     if row is None or row.status not in (
         FollowUpAutoSendStatus.scheduled,
@@ -422,6 +438,8 @@ async def guard_reschedule(
             "auto_send_due_required",
             "This follow-up has an auto-message scheduled — cancel it before clearing the date.",
         )
+    if row.send_at is not None:
+        return  # the message keeps its own time
     due_at = new_due_at if new_due_at.tzinfo else new_due_at.replace(tzinfo=UTC)
     now = datetime.now(UTC)
     if due_at < now - AUTO_SEND_PAST_GRACE:

@@ -158,7 +158,9 @@ def world(monkeypatch):
     return state
 
 
-async def _stage(followup_type=TaskFollowupType.whatsapp, due_in=timedelta(days=1), **kw):
+async def _stage(
+    followup_type=TaskFollowupType.whatsapp, due_in=timedelta(days=1), send_in=None, **kw
+):
     task = SimpleNamespace(
         id=uuid.uuid4(),
         due_at=datetime.now(UTC) + due_in,
@@ -175,6 +177,7 @@ async def _stage(followup_type=TaskFollowupType.whatsapp, due_in=timedelta(days=
         actor_id=ACTOR,
         lead_closing=kw.get("lead_closing", False),
         replace=kw.get("replace", False),
+        send_at=None if send_in is None else datetime.now(UTC) + send_in,
     )
 
 
@@ -192,7 +195,27 @@ async def test_schedules_and_writes_a_timeline_entry(world):
     assert staged.row.recipient == "+919000000001"
     assert staged.row.channel == FollowUpAutoSendChannel.whatsapp
     assert staged.replaced == []
+    assert staged.row.send_at is None  # follows the follow-up's time
     assert world["activities"][0]["payload"]["status"] == "scheduled"
+
+
+@pytest.mark.asyncio
+async def test_own_send_time_is_stored_and_checked_instead_of_the_follow_up(world):
+    # The follow-up is overdue, but the message has its own future time.
+    staged = await _stage(due_in=-timedelta(hours=3), send_in=timedelta(hours=4))
+    assert staged.row.send_at == staged.due_at
+    assert staged.due_at > datetime.now(UTC)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("send_in", "code"),
+    [(-timedelta(hours=1), "auto_send_past_due"), (timedelta(days=91), "auto_send_too_far")],
+)
+async def test_own_send_time_must_be_sendable(world, send_in, code):
+    exc = await _expect(code, send_in=send_in)
+    if code == "auto_send_past_due":
+        assert exc.detail["message"] == "Pick a send time in the future."
 
 
 @pytest.mark.asyncio

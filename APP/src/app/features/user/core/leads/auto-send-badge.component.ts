@@ -55,10 +55,11 @@ const REASON_TEXT: Record<string, string> = {
 type Tone = 'accent' | 'success' | 'danger' | 'muted';
 
 /**
- * Compact state of a follow-up's auto-message for follow-up lists:
- * scheduled (with time + Cancel), sending, sent (with delivery), not sent
- * (with the reason), cancelled. Cancel asks first, calls the API and
- * emits `changed` so the host list can refresh.
+ * Compact state of a follow-up's auto-message for follow-up lists, on one
+ * line: a short status pill (scheduled with its time, sending, sent with
+ * delivery, not sent, cancelled), the template name — or why it didn't
+ * go — cut to fit, and Cancel while it is scheduled. Cancel asks first,
+ * calls the API and emits `changed` so the host list can refresh.
  */
 @Component({
   selector: 'app-auto-send-badge',
@@ -66,9 +67,9 @@ type Tone = 'accent' | 'success' | 'danger' | 'muted';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [LucideAngularModule],
   template: `
-    <span class="inline-flex max-w-full flex-wrap items-center gap-1.5 text-[11px]">
+    <div class="flex max-w-full flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
       <span
-        class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ring-1"
+        class="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 font-medium ring-1"
         [class.bg-accent-soft]="tone() === 'accent'"
         [class.text-accent]="tone() === 'accent'"
         [class.ring-accent/20]="tone() === 'accent'"
@@ -83,25 +84,25 @@ type Tone = 'accent' | 'success' | 'danger' | 'muted';
         [class.bg-surface-2]="tone() === 'muted'"
         [class.text-muted]="tone() === 'muted'"
         [class.ring-subtle]="tone() === 'muted'"
-        [attr.title]="reason()"
+        [attr.title]="tooltip()"
       >
         <lucide-icon [name]="icon()" class="h-3 w-3" aria-hidden="true" />
         {{ label() }}
       </span>
-      @if (reason(); as why) {
-        <span class="truncate text-faint">{{ why }}</span>
-      }
+      <span class="min-w-0 max-w-[14rem] truncate text-muted" [attr.title]="tooltip()">{{
+        detail()
+      }}</span>
       @if (canCancel()) {
         <button
           type="button"
-          class="font-medium text-muted underline-offset-2 hover:text-default hover:underline disabled:opacity-50"
+          class="shrink-0 font-medium text-faint underline-offset-2 hover:text-red-500 hover:underline disabled:opacity-50"
           [disabled]="cancelling()"
           (click)="cancel()"
         >
           {{ cancelling() ? 'Cancelling…' : 'Cancel' }}
         </button>
       }
-    </span>
+    </div>
   `,
 })
 export class AutoSendBadgeComponent {
@@ -154,32 +155,44 @@ export class AutoSendBadgeComponent {
     }
   });
 
+  /** Short pill text — never wraps. */
   protected readonly label = computed(() => {
     const a = this.autoSend();
     switch (a.status) {
       case 'scheduled':
       case 'claimed': {
         const when = this.formatWhen(a.due_at);
-        return `Auto-message${when ? ' ' + when : ''} · ${a.template_name}`;
+        return when ? `Auto-message · ${when}` : 'Auto-message';
       }
       case 'sending':
-        return `Sending ${a.template_name}…`;
-      case 'sent': {
-        const delivery =
-          a.delivery === 'read' ? ' · Read' : a.delivery === 'delivered' ? ' · Delivered' : '';
-        return `Auto-message sent${delivery}`;
-      }
+        return 'Sending…';
+      case 'sent':
+        return a.delivery === 'read'
+          ? 'Sent · Read'
+          : a.delivery === 'delivered'
+            ? 'Sent · Delivered'
+            : 'Sent';
       case 'cancelled':
-        return 'Auto-message cancelled';
+        return 'Cancelled';
       default:
-        return 'Auto-message not sent';
+        return 'Not sent';
     }
   });
 
-  protected readonly reason = computed<string | null>(() => {
+  /** Why it didn't go, for skipped / failed / cancelled. */
+  private readonly reason = computed<string | null>(() => {
     const a = this.autoSend();
     if (a.status !== 'failed' && a.status !== 'skipped' && a.status !== 'cancelled') return null;
     return a.reason ? (REASON_TEXT[a.reason] ?? null) : null;
+  });
+
+  /** Next to the pill: the reason when there is one, else the template. */
+  protected readonly detail = computed(() => this.reason() ?? this.autoSend().template_name);
+
+  protected readonly tooltip = computed(() => {
+    const why = this.reason();
+    const name = `Auto-message “${this.autoSend().template_name}”`;
+    return why ? `${name} — ${why}` : name;
   });
 
   protected async cancel(): Promise<void> {
@@ -209,15 +222,14 @@ export class AutoSendBadgeComponent {
       });
   }
 
+  /** "6:22 PM" today, "28 Nov, 6:22 PM" on another day. */
   private formatWhen(value: string | null): string {
     if (!value) return '';
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '';
-    return date.toLocaleString(undefined, {
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    if (date.toDateString() === new Date().toDateString()) return time;
+    const day = date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    return `${day}, ${time}`;
   }
 }

@@ -6,10 +6,10 @@ import { FollowUpAutoSendPickerComponent } from './follow-up-auto-send-picker.co
 import { AutoSendSummary, LeadsApiService } from './leads-api.service';
 
 /**
- * follow-up-auto-send Step 8 — the Update Status auto-send picker:
+ * follow-up-auto-send Steps 8 + 10 — the Update Status auto-send picker:
  * only usable templates are requested, an opted-out / address-less contact
- * blocks the picker, and an existing scheduled message makes the choice
- * wait for Replace / Keep.
+ * blocks the picker, an existing scheduled message makes the choice wait
+ * for Replace / Keep, and an own send time travels with the choice.
  */
 describe('FollowUpAutoSendPickerComponent', () => {
   let fixture: ComponentFixture<FollowUpAutoSendPickerComponent>;
@@ -76,7 +76,30 @@ describe('FollowUpAutoSendPickerComponent', () => {
     expect(fixture.componentInstance.choice()).toEqual({
       templateId: 't1',
       replace: false,
-      decisionPending: false,
+      sendAt: null,
+      needsInput: false,
+    });
+  });
+
+  it('sends an own time when one is picked, starting from the follow-up time', () => {
+    setup({ phone: '+919000000001', whatsapp_opt_in_status: 'implicit' });
+    pick('t1');
+    const picker = fixture.componentInstance as unknown as {
+      onSendWhen(v: string): void;
+      onCustomAt(v: string): void;
+    };
+    picker.onSendWhen('custom');
+    expect(fixture.componentInstance.choice()?.sendAt).toBe(
+      new Date('2030-01-01T10:30').toISOString(),
+    );
+    picker.onCustomAt('');
+    expect(fixture.componentInstance.choice()?.needsInput).toBeTrue();
+    picker.onCustomAt('2030-01-01T09:00');
+    expect(fixture.componentInstance.choice()).toEqual({
+      templateId: 't1',
+      replace: false,
+      sendAt: new Date('2030-01-01T09:00').toISOString(),
+      needsInput: false,
     });
   });
 
@@ -101,12 +124,13 @@ describe('FollowUpAutoSendPickerComponent', () => {
     };
     setup({ phone: '+919000000001', whatsapp_opt_in_status: 'implicit' });
     pick('t1');
-    expect(fixture.componentInstance.choice()?.decisionPending).toBeTrue();
+    expect(fixture.componentInstance.choice()?.needsInput).toBeTrue();
     (fixture.componentInstance as unknown as { replaceExisting(): void }).replaceExisting();
     expect(fixture.componentInstance.choice()).toEqual({
       templateId: 't1',
       replace: true,
-      decisionPending: false,
+      sendAt: null,
+      needsInput: false,
     });
   });
 });

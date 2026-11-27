@@ -164,6 +164,9 @@ export interface NextFollowUpSpec {
   /** Cancel the person's existing scheduled auto-message and schedule
    *  this one instead (otherwise 409 `auto_send_exists`). */
   replace_existing_auto_send?: boolean;
+  /** When the auto-message goes; omitted = at the follow-up time (and it
+   *  moves when the follow-up is rescheduled). */
+  auto_send_at?: string | null;
 }
 
 export type AutoSendStatus =
@@ -175,8 +178,8 @@ export type AutoSendStatus =
   | 'skipped'
   | 'cancelled';
 
-/** A follow-up's auto-message as the API reports it. `due_at` is the
- *  follow-up's live due time, which is when it sends. */
+/** A follow-up's auto-message as the API reports it. `due_at` is when
+ *  it sends: its own time if one was picked, else the follow-up's. */
 export interface AutoSendSummary {
   id: string;
   task_id: string;

@@ -189,6 +189,8 @@ with **Replace**. Badges ("Auto-message 15:53 · <template>", "Sent · Delivered
 | 7 | Due-time reminders (`due_reminder_sent_at`) | backend |
 | 8 | Update Status modal UI | frontend |
 | 9 | Badges + Cancel on panel / dashboard / Tasks page | frontend |
+| 10 | Own send time (`send_at`) — send at the follow-up time or a picked time | backend + frontend |
+| 11 | Preview filled with the lead's real details | backend + frontend |
 
 Ships after [`contact-tags-for-campaigns`](../contact-tags-for-campaigns/README.md) (both edit
 log-update and the Update Status modal). Migration numbers follow that track's `0244`.

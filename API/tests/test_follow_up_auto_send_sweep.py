@@ -77,6 +77,7 @@ def _world_objects():
         template_name="Following up",
         channel=FollowUpAutoSendChannel.whatsapp,
         recipient="+919000000001",
+        send_at=None,
         created_by_id=uuid.uuid4(),
         attempts=0,
     )
@@ -244,6 +245,20 @@ async def test_rescheduled_later_after_the_claim_is_released_not_sent(world):
     world["task"].due_at = datetime.now(UTC) + timedelta(hours=2)
     assert await _process(world) == "released"
     assert _final_status(world) == FollowUpAutoSendStatus.scheduled
+    assert world["sent_calls"] == []
+
+
+@pytest.mark.asyncio
+async def test_own_send_time_decides_when_it_goes(world):
+    world["task"].due_at = datetime.now(UTC) + timedelta(hours=2)
+    world["row"].send_at = datetime.now(UTC) - timedelta(minutes=1)
+    assert await _process(world) == "sent"
+
+
+@pytest.mark.asyncio
+async def test_own_send_time_later_than_the_follow_up_is_released(world):
+    world["row"].send_at = datetime.now(UTC) + timedelta(hours=2)
+    assert await _process(world) == "released"
     assert world["sent_calls"] == []
 
 

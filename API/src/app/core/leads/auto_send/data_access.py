@@ -25,6 +25,10 @@ from src.app.core.tasks.models import Task, TaskStatus
 # call is already under way.
 _CANCELLABLE = (FollowUpAutoSendStatus.scheduled, FollowUpAutoSendStatus.claimed)
 
+# When a row sends: its own fixed time, else its follow-up's live due time.
+# Needs `Task` joined.
+_SEND_TIME = func.coalesce(FollowUpAutoSend.send_at, Task.due_at)
+
 
 def insert_auto_send(session: AsyncSession, row: FollowUpAutoSend) -> FollowUpAutoSend:
     """Stage a new row in the caller's transaction."""
@@ -47,10 +51,10 @@ async def list_pending_auto_sends_for_contact(
     session: AsyncSession, *, org_id: uuid.UUID, contact_id: uuid.UUID
 ) -> list[tuple[FollowUpAutoSend, datetime | None]]:
     """Pending rows (scheduled / claimed / sending) on any of the contact's
-    leads, each with its task's live ``due_at`` — the "one pending
-    auto-send per person" check and the modal's banner read this."""
+    leads, each with its send time — the "one pending auto-send per
+    person" check and the modal's banner read this."""
     result = await session.execute(
-        select(FollowUpAutoSend, Task.due_at)
+        select(FollowUpAutoSend, _SEND_TIME)
         .join(Lead, Lead.id == FollowUpAutoSend.lead_id)
         .join(Task, Task.id == FollowUpAutoSend.task_id)
         .where(
@@ -114,12 +118,12 @@ async def list_auto_sends_for_tasks(
     session: AsyncSession, *, org_id: uuid.UUID, task_ids: list[uuid.UUID]
 ) -> list[tuple[FollowUpAutoSend, datetime | None, datetime | None, datetime | None]]:
     """Every auto-send attached to ``task_ids`` (at most one per task),
-    with the task's live ``due_at`` and the sent message's
-    ``delivered_at`` / ``read_at`` — one query for a whole list page."""
+    with its send time and the sent message's ``delivered_at`` /
+    ``read_at`` — one query for a whole list page."""
     if not task_ids:
         return []
     result = await session.execute(
-        select(FollowUpAutoSend, Task.due_at, Message.delivered_at, Message.read_at)
+        select(FollowUpAutoSend, _SEND_TIME, Message.delivered_at, Message.read_at)
         .join(Task, Task.id == FollowUpAutoSend.task_id)
         .outerjoin(Message, Message.id == FollowUpAutoSend.message_id)
         .where(FollowUpAutoSend.org_id == org_id, FollowUpAutoSend.task_id.in_(task_ids))
@@ -184,8 +188,9 @@ async def count_auto_sends_created_by(
 async def select_due_candidates(
     session: AsyncSession, *, now: datetime, limit: int
 ) -> list[tuple[uuid.UUID, uuid.UUID]]:
-    """``(id, org_id)`` of scheduled rows whose open follow-up is due and
-    whose retry back-off has passed, oldest due first, across every org.
+    """``(id, org_id)`` of scheduled rows on an open follow-up whose send
+    time has come and whose retry back-off has passed, oldest first,
+    across every org.
     Row-locked with SKIP LOCKED so overlapping sweeps take disjoint rows;
     locks last until the caller commits."""
     result = await session.execute(
@@ -194,10 +199,10 @@ async def select_due_candidates(
         .where(
             FollowUpAutoSend.status == FollowUpAutoSendStatus.scheduled,
             Task.status == TaskStatus.open,
-            Task.due_at <= now,
+            _SEND_TIME <= now,
             or_(FollowUpAutoSend.not_before.is_(None), FollowUpAutoSend.not_before <= now),
         )
-        .order_by(Task.due_at)
+        .order_by(_SEND_TIME)
         .limit(limit)
         .with_for_update(skip_locked=True, of=FollowUpAutoSend)
     )
