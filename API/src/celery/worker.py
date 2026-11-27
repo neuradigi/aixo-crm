@@ -108,6 +108,7 @@ celery.autodiscover_tasks(
         # ``open`` tasks whose ``due_at`` is > 7 days ago to ``missed``
         # so the dashboard's Overdue bucket doesn't grow unbounded.
         "src.app.core.tasks.tasks",
+        "src.app.core.leads.auto_send.tasks",
         # Conversations inbox — every-minute sweep reopening snoozed
         # conversations whose ``snoozed_until`` has passed.
         "src.app.core.conversations.tasks",

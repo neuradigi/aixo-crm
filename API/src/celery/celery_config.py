@@ -246,6 +246,11 @@ beat_schedule = {
     # dashboard's Overdue bucket and preserves the audit trail under
     # the Missed filter. 7-day threshold means the ±14h timezone slack
     # (org-local vs UTC) never matters.
+    # tasks/follow-up-auto-send Step 5 — send due follow-up auto-messages.
+    "leads-auto-send-sweep": {
+        "task": "src.app.core.leads.auto_send.tasks.sweep_auto_sends",
+        "schedule": 60.0,
+    },
     "tasks-groom-stale-open": {
         "task": "src.app.core.tasks.tasks.groom_stale_open_tasks",
         "schedule": crontab(hour=2, minute=0),

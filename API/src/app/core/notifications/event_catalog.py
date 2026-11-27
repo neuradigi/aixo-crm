@@ -73,6 +73,15 @@ CATALOG: list[NotificationEventEntry] = [
         ),
         group="Follow-ups",
     ),
+    NotificationEventEntry(
+        event_type="follow_up.auto_send_failed",
+        label="A follow-up auto-message wasn't sent",
+        description=(
+            "An auto-message on a follow-up you own or scheduled was skipped or failed — "
+            "follow up manually."
+        ),
+        group="Follow-ups",
+    ),
     # --- Messages ---------------------------------------------------------
     NotificationEventEntry(
         event_type="conversation.message",

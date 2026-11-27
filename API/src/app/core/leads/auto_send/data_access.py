@@ -12,6 +12,7 @@ from datetime import datetime
 from sqlalchemy import String, case, cast, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.app.core.conversations.models import Message
 from src.app.core.leads.auto_send.models import (
     PENDING_STATUSES,
     FollowUpAutoSend,
@@ -173,3 +174,140 @@ async def count_auto_sends_created_by(
         )
     )
     return int(result.scalar_one())
+
+
+# --- Sweep ---------------------------------------------------------------
+
+
+async def select_due_candidates(
+    session: AsyncSession, *, now: datetime, limit: int
+) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    """``(id, org_id)`` of scheduled rows whose open follow-up is due and
+    whose retry back-off has passed, oldest due first, across every org.
+    Row-locked with SKIP LOCKED so overlapping sweeps take disjoint rows;
+    locks last until the caller commits."""
+    result = await session.execute(
+        select(FollowUpAutoSend.id, FollowUpAutoSend.org_id)
+        .join(Task, Task.id == FollowUpAutoSend.task_id)
+        .where(
+            FollowUpAutoSend.status == FollowUpAutoSendStatus.scheduled,
+            Task.status == TaskStatus.open,
+            Task.due_at <= now,
+            or_(FollowUpAutoSend.not_before.is_(None), FollowUpAutoSend.not_before <= now),
+        )
+        .order_by(Task.due_at)
+        .limit(limit)
+        .with_for_update(skip_locked=True, of=FollowUpAutoSend)
+    )
+    return [(row_id, org_id) for row_id, org_id in result.all()]
+
+
+async def mark_claimed(
+    session: AsyncSession, *, ids: list[uuid.UUID], claim_token: uuid.UUID, now: datetime
+) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    """``scheduled → claimed`` for ``ids``; returns ``(id, org_id)`` of the
+    rows actually claimed."""
+    if not ids:
+        return []
+    result = await session.execute(
+        update(FollowUpAutoSend)
+        .where(
+            FollowUpAutoSend.id.in_(ids),
+            FollowUpAutoSend.status == FollowUpAutoSendStatus.scheduled,
+        )
+        .values(status=FollowUpAutoSendStatus.claimed, claim_token=claim_token, claimed_at=now)
+        .returning(FollowUpAutoSend.id, FollowUpAutoSend.org_id)
+    )
+    return [(row_id, org_id) for row_id, org_id in result.all()]
+
+
+async def get_claimed(
+    session: AsyncSession, *, auto_send_id: uuid.UUID, claim_token: uuid.UUID
+) -> tuple[FollowUpAutoSend, Task, Lead] | None:
+    """The row (with its task and lead) if it is still held by
+    ``claim_token`` — None once cancelled, reaped or finished."""
+    result = await session.execute(
+        select(FollowUpAutoSend, Task, Lead)
+        .join(Task, Task.id == FollowUpAutoSend.task_id)
+        .join(Lead, Lead.id == FollowUpAutoSend.lead_id)
+        .where(
+            FollowUpAutoSend.id == auto_send_id,
+            FollowUpAutoSend.claim_token == claim_token,
+            FollowUpAutoSend.status.in_(
+                (FollowUpAutoSendStatus.claimed, FollowUpAutoSendStatus.sending)
+            ),
+        )
+        .execution_options(populate_existing=True)
+    )
+    found = result.first()
+    return (found[0], found[1], found[2]) if found else None
+
+
+async def transition(
+    session: AsyncSession,
+    *,
+    auto_send_id: uuid.UUID,
+    claim_token: uuid.UUID,
+    from_status: FollowUpAutoSendStatus,
+    values: dict[str, object],
+) -> bool:
+    """Compare-and-set: apply ``values`` only while the row is still
+    ``from_status`` and held by ``claim_token``. True when it applied."""
+    result = await session.execute(
+        update(FollowUpAutoSend)
+        .where(
+            FollowUpAutoSend.id == auto_send_id,
+            FollowUpAutoSend.claim_token == claim_token,
+            FollowUpAutoSend.status == from_status,
+        )
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    )
+    return (result.rowcount or 0) == 1
+
+
+async def release_stale_claims(session: AsyncSession, *, before: datetime) -> int:
+    """``claimed`` rows a sweep never started sending (crashed / over its
+    budget) go back to ``scheduled`` — they were never attempted."""
+    result = await session.execute(
+        update(FollowUpAutoSend)
+        .where(
+            FollowUpAutoSend.status == FollowUpAutoSendStatus.claimed,
+            FollowUpAutoSend.claimed_at < before,
+        )
+        .values(status=FollowUpAutoSendStatus.scheduled, claim_token=None, claimed_at=None)
+        .execution_options(synchronize_session=False)
+    )
+    return int(result.rowcount or 0)
+
+
+async def list_stale_sending(
+    session: AsyncSession, *, before: datetime, limit: int
+) -> list[tuple[uuid.UUID, uuid.UUID, uuid.UUID]]:
+    """``(id, org_id, claim_token)`` of rows stuck in ``sending`` since
+    before ``before`` — the provider call's outcome is unknown."""
+    result = await session.execute(
+        select(FollowUpAutoSend.id, FollowUpAutoSend.org_id, FollowUpAutoSend.claim_token)
+        .where(
+            FollowUpAutoSend.status == FollowUpAutoSendStatus.sending,
+            FollowUpAutoSend.claimed_at < before,
+        )
+        .limit(limit)
+    )
+    return [(i, o, t) for i, o, t in result.all()]
+
+
+async def find_message_id_for_auto_send(
+    session: AsyncSession, *, org_id: uuid.UUID, auto_send_id: uuid.UUID
+) -> uuid.UUID | None:
+    """The outbound message stamped with this auto-send's id, if one was
+    written — proof the provider accepted the send."""
+    result = await session.execute(
+        select(Message.id)
+        .where(
+            Message.org_id == org_id,
+            Message.payload["auto_send_id"].astext == str(auto_send_id),
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
