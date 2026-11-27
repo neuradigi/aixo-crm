@@ -34,6 +34,7 @@ import { Contact, ContactsApiService } from '../contacts/contacts-api.service';
 import { PipelineStage, PipelinesApiService } from '../pipelines/pipelines-api.service';
 import { Lead, LeadCreate, LeadUpdate, LeadsApiService } from './leads-api.service';
 import { LeadFormModalComponent } from './lead-form-modal.component';
+import { ContactTagsEditorComponent } from '../contacts/contact-tags-editor.component';
 import { LeadFollowUpsPanelComponent } from './lead-follow-ups-panel.component';
 import { UpdateStatusModalComponent } from './update-status-modal.component';
 import {
@@ -91,6 +92,7 @@ const STAGE_TONES: Record<string, { bg: string; text: string; ring: string }> = 
     WonCaptureModalComponent,
     UpdateStatusModalComponent,
     LeadFollowUpsPanelComponent,
+    ContactTagsEditorComponent,
   ],
   templateUrl: './lead-detail.page.html',
 })
@@ -120,6 +122,10 @@ export class LeadDetailPageComponent implements OnInit {
   readonly updateStatusOpen = signal(false);
 
   readonly canReassign = computed(() => this.auth.hasPermission('leads.reassign'));
+  /** Anonymised contacts can't be re-tagged (the server answers 409). */
+  readonly canEditContactTags = computed(
+    () => this.auth.hasPermission('contacts.write') && !this.contact()?.anonymised_at,
+  );
 
   readonly users = toSignal(this.usersDir.list(), { initialValue: [] });
 
@@ -301,8 +307,10 @@ export class LeadDetailPageComponent implements OnInit {
   protected onUpdateStatusSaved(event: {
     lead: Lead;
     next_follow_up_task_id: string | null;
+    contact_tags: string[] | null;
   }): void {
     this.lead.set(event.lead);
+    if (event.contact_tags !== null) this.onContactTagsChanged(event.contact_tags);
     this.updateStatusOpen.set(false);
     // Timeline picks up the new `note` + `status_change` activities on
     // the next fetch; force a reload so reps see them without a full
@@ -321,6 +329,11 @@ export class LeadDetailPageComponent implements OnInit {
           ? 'A follow-up task has been scheduled.'
           : 'Your changes are saved to the timeline.',
     });
+  }
+
+  /** Keep the contact card in step with the tags just saved. */
+  protected onContactTagsChanged(tags: string[]): void {
+    this.contact.update((c) => (c ? { ...c, tags } : c));
   }
 
   protected closeModal(): void {

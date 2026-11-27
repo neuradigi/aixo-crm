@@ -28,6 +28,7 @@ import {
   input,
   output,
   signal,
+  untracked,
 } from '@angular/core';
 import {
   AbstractControl,
@@ -43,7 +44,10 @@ import { LucideAngularModule } from 'lucide-angular';
 import { extractApiError } from '@core/services/api-error.util';
 import { Contact } from '../contacts/contacts-api.service';
 import { PipelineStage } from '../pipelines/pipelines-api.service';
+import { FurnitureAuthService } from '../auth/auth.service';
+import { injectContactTagSuggestions } from '../contacts/contact-tag-suggestions';
 import { MobileDateTimeComponent } from '../shared/forms/mobile-datetime.component';
+import { TagInputComponent } from '../shared/forms/tag-input.component';
 import { MobileSelectComponent, MobileSelectOption } from '../shared/forms/mobile-select.component';
 import { UserMini, UsersDirectoryService } from '../shared/services/users-directory.service';
 import { commonValidators } from '../shared/validators';
@@ -62,6 +66,7 @@ interface FormShape {
   contact_full_name: FormControl<string>;
   contact_phone: FormControl<string>;
   contact_email: FormControl<string>;
+  contact_tags: FormControl<string[]>;
   source: FormControl<LeadSource>;
   /** Renamed in the UI as "Status" per sir's ask — the dropdown lists
    *  the org's pipeline stages (proposal / qualified / won / lost /
@@ -129,6 +134,7 @@ const LOST_REASON_OPTIONS: ReadonlyArray<MobileSelectOption> = [
     MobileSelectComponent,
     MobileDateTimeComponent,
     LeadFollowUpsPanelComponent,
+    TagInputComponent,
   ],
   templateUrl: './update-status-modal.component.html',
 })
@@ -137,6 +143,8 @@ export class UpdateStatusModalComponent {
   private readonly api = inject(LeadsApiService);
   private readonly usersDir = inject(UsersDirectoryService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(FurnitureAuthService);
+  protected readonly tagVocabulary = injectContactTagSuggestions();
 
   /** Org user roster — feeds the Owner dropdown + is consulted for the
    *  "Reassigned from Ravi to Priya." auto-remark string. Cached
@@ -161,7 +169,22 @@ export class UpdateStatusModalComponent {
   readonly pipelineStages = input.required<PipelineStage[]>();
 
   readonly cancelled = output<void>();
-  readonly saved = output<{ lead: Lead; next_follow_up_task_id: string | null }>();
+  readonly saved = output<{
+    lead: Lead;
+    next_follow_up_task_id: string | null;
+    contact_tags: string[] | null;
+  }>();
+
+  /** Tags need `contacts.write` (the server enforces it too) and can't
+   *  change on an anonymised contact. */
+  protected readonly canEditTags = computed(
+    () => this.auth.hasPermission('contacts.write') && !this.contact()?.anonymised_at,
+  );
+  /** Tag-specific save error (cap reached / anonymised), shown under
+   *  the field instead of the generic banner. */
+  protected readonly tagsError = signal<string | null>(null);
+  /** Tags as loaded — the submit sends only the difference. */
+  private originalTags: string[] = [];
 
   protected readonly submitting = signal(false);
   /** Distinguishes the 409 optimistic-guard error (special banner +
@@ -218,6 +241,7 @@ export class UpdateStatusModalComponent {
       nonNullable: true,
       validators: [commonValidators.email, Validators.maxLength(255)],
     }),
+    contact_tags: this.fb.control<string[]>([], { nonNullable: true }),
     source: this.fb.control<LeadSource>('manual', { nonNullable: true }),
     pipeline_stage: this.fb.control<string>('', {
       nonNullable: true,
@@ -318,6 +342,7 @@ export class UpdateStatusModalComponent {
         contact_full_name: c?.full_name ?? '',
         contact_phone: c?.phone ?? '',
         contact_email: c?.email ?? '',
+        contact_tags: [...(c?.tags ?? [])],
         source: l.source,
         pipeline_stage: l.pipeline_stage,
         assigned_to_id: l.assigned_to_id ?? '',
@@ -330,6 +355,13 @@ export class UpdateStatusModalComponent {
       // Remember the original owner so auto-remarks + payload builder
       // can tell when the rep actually touched the dropdown.
       this.originalOwner = l.assigned_to_id ?? '';
+      this.originalTags = [...(c?.tags ?? [])];
+      if (untracked(() => this.canEditTags())) {
+        this.form.controls.contact_tags.enable({ emitEvent: false });
+      } else {
+        this.form.controls.contact_tags.disable({ emitEvent: false });
+      }
+      this.tagsError.set(null);
       this.autoRemarksSeed = '';
       // Clear per-submit error state whenever the modal re-opens with
       // a different lead.
@@ -446,6 +478,18 @@ export class UpdateStatusModalComponent {
       payload.contact_basics = patched;
     }
 
+    // Tags go as a delta against what the modal opened with, so a tag
+    // someone else added meanwhile is never removed. Omitted when
+    // unchanged (no `contacts.write` needed then).
+    if (this.canEditTags()) {
+      const add = raw.contact_tags.filter((t) => !this.originalTags.includes(t));
+      const remove = this.originalTags.filter((t) => !raw.contact_tags.includes(t));
+      if (add.length > 0 || remove.length > 0) {
+        payload.contact_tags = { add, remove };
+      }
+    }
+    this.tagsError.set(null);
+
     if (raw.pipeline_stage !== l.pipeline_stage) {
       payload.pipeline_stage = raw.pipeline_stage;
     }
@@ -483,10 +527,17 @@ export class UpdateStatusModalComponent {
           this.saved.emit({
             lead: resp.lead,
             next_follow_up_task_id: resp.next_follow_up_task_id,
+            contact_tags: resp.contact_tags,
           });
         },
         error: (err: HttpErrorResponse) => {
           this.submitting.set(false);
+          const detailError = err.error?.detail?.error as string | undefined;
+          if (detailError === 'tag_limit' || detailError === 'contact_anonymised') {
+            // Nothing was saved (one transaction); every typed value stays.
+            this.tagsError.set(extractApiError(err) ?? 'Could not change tags.');
+            return;
+          }
           if (err.status === 409) {
             const drifted = (err.error?.detail?.current_stage as string | undefined) ?? '';
             this.stageDriftedTo.set(drifted);

@@ -280,7 +280,13 @@ def test_log_update_service_avoids_committing_helpers():
     from src.app.core.leads import service as leads_service
 
     src = inspect.getsource(leads_service.log_update_for_lead)
-    for banned in ("move_stage_for_lead", "move_card(", "update_contact(", "create_task("):
+    for banned in (
+        "move_stage_for_lead",
+        "move_card(",
+        "update_contact(",
+        "create_task(",
+        "apply_contact_tag_delta(",
+    ):
         assert banned not in src, (
             f"log_update_for_lead must not call {banned!r}; those helpers commit "
             "internally and break the atomicity contract."

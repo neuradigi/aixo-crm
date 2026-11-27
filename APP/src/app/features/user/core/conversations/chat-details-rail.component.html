@@ -39,6 +39,17 @@
       [conversationId]="conversation.id"
       (openConversation)="openConversation.emit($event)"
     />
+
+    <!-- Contact tags — on the person (campaigns target these), unlike
+         the conversation tags further down which label this thread. -->
+    <section class="flex flex-col gap-2">
+      <p class="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">Contact tags</p>
+      <app-contact-tags-editor
+        [contactId]="conversation.contact_id"
+        [canEdit]="canEditContactTags()"
+      />
+      <p class="text-[11px] text-faint">Used to target campaigns.</p>
+    </section>
   }
 
   <!-- Assignee. Reuses the same ownerColor helper as the list badge
@@ -178,9 +189,11 @@
     }
   </section>
 
-  <!-- Tags. Chip list + manager dropdown reused verbatim. -->
+  <!-- Conversation tags. Chip list + manager dropdown reused verbatim. -->
   <section class="flex flex-col gap-2">
-    <p class="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">Tags</p>
+    <p class="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
+      Conversation tags
+    </p>
     @if (conversation.tags && conversation.tags.length > 0) {
       <div class="flex flex-wrap gap-1">
         @for (t of conversation.tags; track t.id) {

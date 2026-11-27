@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
+from src.app.core.contacts.schemas import ContactTagDelta
 from src.app.core.leads.models import LeadSource, LeadStatus
 from src.app.core.tasks.models import TaskFollowupType
 from src.app.shared.schemas import (
@@ -200,13 +201,18 @@ class LogUpdateRequest(BaseModel):
     ``remarks`` is always written as a ``type='note'`` activity so it
     appears on the standard timeline without a new activity type.
 
-    ``contact_basics`` / ``pipeline_stage`` / ``source`` / ``next_follow_up``
-    are all optional — a bare ``{"if_current_stage":X, "remarks":"…"}``
-    payload logs a note and does nothing else.
+    ``contact_basics`` / ``contact_tags`` / ``pipeline_stage`` / ``source`` /
+    ``next_follow_up`` are all optional — a bare
+    ``{"if_current_stage":X, "remarks":"…"}`` payload logs a note and does
+    nothing else.
     """
 
     if_current_stage: str = Field(min_length=1, max_length=64)
     contact_basics: FollowUpContactBasics | None = None
+    # Add / remove tags on the lead's contact in the same transaction.
+    # A delta (not a full list) so it never overwrites tags someone else
+    # added meanwhile. Needs `contacts.write` when non-empty (router).
+    contact_tags: ContactTagDelta | None = None
     pipeline_stage: str | None = Field(default=None, min_length=1, max_length=64)
     source: LeadSource | None = None
     # Remarks used to be required (min_length=1). Now optional — the
@@ -287,11 +293,14 @@ class LogUpdateResponse(BaseModel):
     ``next_follow_up_task_id`` is non-null iff the request supplied a
     ``next_follow_up`` block and the task was inserted. FE uses this
     to prepend the new task into the Follow-Up History panel without a
-    refetch.
+    refetch. ``contact_tags`` lets the lead card refresh its chips.
     """
 
     lead: LeadOut
     next_follow_up_task_id: uuid.UUID | None = None
+    # The contact's tags after the save — set only when the request
+    # carried a non-empty ``contact_tags`` delta.
+    contact_tags: list[str] | None = None
 
 
 class LeadIngestOut(LeadOut):

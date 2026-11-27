@@ -3,6 +3,7 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 import { environment } from '../../../../../environments/environment';
+import { ContactTagDelta } from '../contacts/contacts-api.service';
 import { FieldDef } from '../shared/dynamic-form/types';
 import { FilterDsl, isEmptyFilter } from '../shared/filter-dsl.types';
 import { BaseCrudApiService } from '../shared/services/base-crud-api.service';
@@ -178,14 +179,19 @@ export interface LogUpdateRequest {
   set_assigned_to?: boolean;
   lost_reason?: string | null;
   lost_reason_other?: string | null;
+  /** Add / remove tags on the lead's contact in the same save. Requires
+   *  `contacts.write` when non-empty. */
+  contact_tags?: ContactTagDelta;
 }
 
 /** Response body from ``POST /leads/{id}/log-update``. Carries the
  * refreshed lead + the created task id (or null when the payload had
- * no ``next_follow_up`` block). */
+ * no ``next_follow_up`` block) + the contact's tags after the save
+ * (null when the request changed no tags). */
 export interface LogUpdateResponse {
   lead: Lead;
   next_follow_up_task_id: string | null;
+  contact_tags: string[] | null;
 }
 
 /** Header-strip roll-up rendered above the kanban / list view (F23).

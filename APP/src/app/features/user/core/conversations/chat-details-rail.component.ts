@@ -20,6 +20,7 @@ import { ConversationBlockNumberActionComponent } from './header/block-number-ac
 import { ConversationExportButtonComponent } from './header/export-button.component';
 import { ConversationContactCardComponent } from './contact-card.component';
 import { ContactActivityComponent } from './contact-activity.component';
+import { ContactTagsEditorComponent } from '../contacts/contact-tags-editor.component';
 import { SnoozePreset, formatHint, snoozePresets } from './snooze-options';
 import { FurnitureAuthService } from '../auth/auth.service';
 
@@ -49,6 +50,7 @@ import { FurnitureAuthService } from '../auth/auth.service';
     ConversationExportButtonComponent,
     ConversationContactCardComponent,
     ContactActivityComponent,
+    ContactTagsEditorComponent,
   ],
   templateUrl: './chat-details-rail.component.html',
   host: { class: 'flex min-h-0 flex-1 flex-col overflow-y-auto' },
@@ -101,6 +103,8 @@ export class ChatDetailsRailComponent {
 
   protected readonly statusMenuOpen = signal<boolean>(false);
   protected readonly tagManagerOpen = signal<boolean>(false);
+
+  protected readonly canEditContactTags = computed(() => this.auth.hasPermission('contacts.write'));
 
   protected readonly canReassign = computed(() => {
     if (this.auth.hasPermission('conversations.assign_others')) return true;

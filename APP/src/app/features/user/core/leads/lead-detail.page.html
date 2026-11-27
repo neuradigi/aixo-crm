@@ -339,6 +339,21 @@
                         </dd>
                       </div>
                     </dl>
+                    <div class="mt-4 border-t border-subtle pt-3">
+                      <p class="text-[11px] font-medium text-muted">
+                        Contact tags
+                        <span class="font-normal text-faint"
+                          >· shared across this person's leads</span
+                        >
+                      </p>
+                      <app-contact-tags-editor
+                        class="mt-1.5 block"
+                        [contactId]="c.id"
+                        [tags]="c.tags"
+                        [canEdit]="canEditContactTags()"
+                        (tagsChange)="onContactTagsChanged($event)"
+                      />
+                    </div>
                   </div>
                 } @else {
                   <p class="mt-3 text-xs text-muted">Could not load contact.</p>

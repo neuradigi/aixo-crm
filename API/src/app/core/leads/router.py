@@ -513,14 +513,18 @@ async def log_lead_update_endpoint(
     """Atomic Update-Status endpoint powering the modal.
 
     See ``log_update_for_lead`` for the write ordering. When
-    ``contact_basics`` is supplied the caller must additionally hold
-    ``contacts.write`` — the leads-write scope alone would otherwise
-    become a side-door around the contacts-write permission gate.
+    ``contact_basics`` or a non-empty ``contact_tags`` delta is supplied
+    the caller must additionally hold ``contacts.write`` — the
+    leads-write scope alone would otherwise become a side-door around
+    the contacts-write permission gate.
     Same rule for ``assigned_to_id``: an owner change requires the
     dedicated ``leads.reassign`` permission so this endpoint can't be
     used to bypass the reassign gate.
     """
-    if payload.contact_basics is not None:
+    edits_contact = payload.contact_basics is not None or (
+        payload.contact_tags is not None and not payload.contact_tags.is_empty()
+    )
+    if edits_contact:
         if not await role_has_permission(db, user.role_id, "contacts.write"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -532,7 +536,7 @@ async def log_lead_update_endpoint(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Missing permission(s): leads.reassign",
             )
-    lead, next_task_id = await log_update_for_lead(
+    lead, next_task_id, contact_tags = await log_update_for_lead(
         db,
         lead_id=lead_id,
         caller=user,
@@ -541,6 +545,7 @@ async def log_lead_update_endpoint(
     return LogUpdateResponse(
         lead=LeadOut.model_validate(lead),
         next_follow_up_task_id=next_task_id,
+        contact_tags=contact_tags,
     )
 
 

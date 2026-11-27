@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
+  computed,
   effect,
   inject,
   input,
@@ -12,6 +13,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
+import { Subscription } from 'rxjs';
 
 import { extractApiError } from '@core/services/api-error.util';
 import { TagInputComponent } from '../shared/forms/tag-input.component';
@@ -27,6 +29,10 @@ import { ContactTagDelta, ContactsApiService } from './contacts-api.service';
  *
  *   <app-contact-tags-editor [contactId]="c.id" [tags]="c.tags"
  *     [canEdit]="canEditTags()" (tagsChange)="onTagsChanged($event)" />
+ *
+ * Pages that hold only the contact id (e.g. the inbox details rail) omit
+ * `tags`; the editor then loads the contact itself and also goes
+ * read-only for an anonymised contact.
  */
 @Component({
   selector: 'app-contact-tags-editor',
@@ -34,7 +40,7 @@ import { ContactTagDelta, ContactsApiService } from './contacts-api.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, TagInputComponent],
   template: `
-    @if (canEdit()) {
+    @if (editable()) {
       <crm-tag-input
         [dense]="true"
         [ngModel]="current()"
@@ -65,7 +71,9 @@ import { ContactTagDelta, ContactsApiService } from './contacts-api.service';
 })
 export class ContactTagsEditorComponent {
   readonly contactId = input.required<string>();
-  readonly tags = input.required<readonly string[]>();
+  /** The contact's tags when the page already has them; `null` makes the
+   *  editor load the contact. */
+  readonly tags = input<readonly string[] | null>(null);
   readonly canEdit = input(false);
   readonly placeholder = input('Add a tag…');
   /** The contact's tags after each successful save. */
@@ -74,15 +82,29 @@ export class ContactTagsEditorComponent {
   protected readonly current = signal<string[]>([]);
   protected readonly error = signal<string | null>(null);
   protected readonly vocabulary = injectContactTagSuggestions();
+  /** Set when the editor loaded the contact itself and it is anonymised. */
+  private readonly loadedAnonymised = signal(false);
+  protected readonly editable = computed(() => this.canEdit() && !this.loadedAnonymised());
 
   private readonly api = inject(ContactsApiService);
   private readonly destroyRef = inject(DestroyRef);
+  private loadSub: Subscription | null = null;
 
   constructor() {
     effect(() => {
+      const id = this.contactId();
       const tags = this.tags();
-      untracked(() => this.current.set([...tags]));
+      untracked(() => {
+        this.error.set(null);
+        if (tags !== null) {
+          this.loadedAnonymised.set(false);
+          this.current.set([...tags]);
+        } else {
+          this.load(id);
+        }
+      });
     });
+    this.destroyRef.onDestroy(() => this.loadSub?.unsubscribe());
   }
 
   protected save(delta: ContactTagDelta): void {
@@ -102,5 +124,17 @@ export class ContactTagsEditorComponent {
           this.error.set(extractApiError(err) ?? "Couldn't update tags. Try again.");
         },
       });
+  }
+
+  private load(contactId: string): void {
+    this.loadSub?.unsubscribe();
+    this.current.set([]);
+    this.loadSub = this.api.get(contactId).subscribe({
+      next: (contact) => {
+        this.loadedAnonymised.set(contact.anonymised_at != null);
+        this.current.set([...contact.tags]);
+      },
+      error: () => this.error.set("Couldn't load this contact's tags."),
+    });
   }
 }

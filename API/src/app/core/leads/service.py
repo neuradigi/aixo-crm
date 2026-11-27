@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.app.core import activities, audit
 from src.app.core.activities.models import ActivityType
 from src.app.core.contacts import data_access as _contacts_da
+from src.app.core.contacts import service as _contacts_service
 from src.app.core.contacts.models import Contact
 from src.app.core.leads import data_access as _da
 from src.app.core.leads import filter_dsl, scoring
@@ -1863,13 +1864,14 @@ async def log_update_for_lead(
     lead_id: uuid.UUID,
     caller: Any,
     payload: LogUpdateRequest,
-) -> tuple[Lead, uuid.UUID | None]:
+) -> tuple[Lead, uuid.UUID | None, list[str] | None]:
     """Atomic Update-Status write path.
 
-    Returns ``(refreshed_lead, next_follow_up_task_id | None)``.
-    Raises 404 (lead missing or cross-org / not visible), 409
-    (``if_current_stage`` guard tripped), 422 (contact shared across
-    multiple leads / target stage invalid / lost-reason rules).
+    Returns ``(refreshed_lead, next_follow_up_task_id | None,
+    contact_tags_after | None)``. Raises 404 (lead missing or cross-org /
+    not visible), 409 (``if_current_stage`` guard tripped, anonymised
+    contact), 422 (contact shared across multiple leads / target stage
+    invalid / lost-reason rules / tag cap).
     """
     from src.app.core.permissions.service import role_has_permission
 
@@ -1893,7 +1895,24 @@ async def log_update_for_lead(
     org_id = caller.org_id
     actor_id = caller.legacy_uuid
 
-    # 3. Optional narrow contact-basics patch.
+    # 3a. Optional contact-tag delta on the lead's own contact (the id
+    #     comes from the lead row, never the request). Staged through the
+    #     contacts service — row lock, tag cap, anonymised guard — without
+    #     committing; events publish after the single commit below. Not
+    #     subject to `contact_shared`: a tag describes the person, so it
+    #     is correct on every lead they're linked to.
+    tag_diffs: list[_contacts_service.TagDiff] = []
+    if payload.contact_tags is not None and not payload.contact_tags.is_empty():
+        staged = await _contacts_service.stage_tag_delta(
+            session,
+            org_id=org_id,
+            contact_ids=[lead.contact_id],
+            add=payload.contact_tags.add,
+            remove=payload.contact_tags.remove,
+        )
+        tag_diffs = staged.diffs
+
+    # 3b. Optional narrow contact-basics patch.
     if payload.contact_basics is not None:
         lead_count = await _da.count_leads_for_contact(session, lead.contact_id)
         if lead_count > 1:
@@ -2070,7 +2089,12 @@ async def log_update_for_lead(
                 actor_user_id=actor_id,
             )
 
-    return lead, next_task_id
+    # 11. Contact-tag events + audit, after the commit like every other
+    #     tag change.
+    if tag_diffs:
+        await _contacts_service.publish_tag_delta(session, org_id=org_id, diffs=tag_diffs)
+
+    return lead, next_task_id, (tag_diffs[0].after if tag_diffs else None)
 
 
 __all__ = [

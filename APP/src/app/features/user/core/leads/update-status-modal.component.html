@@ -129,6 +129,33 @@
             }
           </label>
 
+          <div class="block sm:col-span-2">
+            <span class="text-xs font-medium text-default">Contact tags</span>
+            <crm-tag-input
+              class="mt-1 block"
+              formControlName="contact_tags"
+              [suggestions]="tagVocabulary.suggestions()"
+              ariaLabel="Contact tags"
+              placeholder="Add a tag…"
+              (lookup)="tagVocabulary.search($event)"
+            />
+            @if (tagsError(); as msg) {
+              <p class="mt-1 text-xs text-red-500">{{ msg }}</p>
+            } @else if (!canEditTags()) {
+              <p class="mt-1 text-xs text-muted">
+                @if (contact()?.anonymised_at) {
+                  This contact was anonymised, so its tags can't be changed.
+                } @else {
+                  You need permission to edit contacts to change tags.
+                }
+              </p>
+            } @else {
+              <p class="mt-1 text-xs text-muted">
+                Shared across this person's leads — use tags to target campaigns.
+              </p>
+            }
+          </div>
+
           @if (sharedContactCount(); as count) {
             <p class="text-xs text-amber-500 sm:col-span-2">
               This customer is on {{ count }} leads. Edit contact details from the
